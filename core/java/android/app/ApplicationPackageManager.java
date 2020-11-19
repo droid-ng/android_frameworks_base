@@ -120,6 +120,7 @@ import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.Immutable;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.os.SomeArgs;
+import com.android.internal.util.PixelPropsUtils;
 import com.android.internal.util.UserIcons;
 
 import com.nvidia.NvAppProfileService;
@@ -820,7 +821,9 @@ public class ApplicationPackageManager extends PackageManager {
 
     @Override
     public boolean hasSystemFeature(String name, int version) {
-        return mHasSystemFeatureCache.query(new HasSystemFeatureQuery(name, version));
+        Boolean override = PixelPropsUtils.getFeature(name);
+        return override != null ? override :
+            mHasSystemFeatureCache.query(new HasSystemFeatureQuery(name, version));
     }
 
     /** @hide */
