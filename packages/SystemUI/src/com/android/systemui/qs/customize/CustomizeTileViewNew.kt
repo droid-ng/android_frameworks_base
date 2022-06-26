@@ -21,15 +21,15 @@ import android.content.Context
 import android.text.TextUtils
 import com.android.systemui.plugins.qs.QSIconView
 import com.android.systemui.plugins.qs.QSTile
-import com.android.systemui.qs.tileimpl.QSTileViewImpl
+import com.android.systemui.qs.tileimpl.QSTileViewImplNew
 
 /**
  * Class for displaying tiles in [QSCustomizer] with the new design (labels on the side).
  */
-class CustomizeTileViewReal(
+open class CustomizeTileViewNew(
     context: Context,
     icon: QSIconView
-) : QSTileViewImpl(context, icon, collapsed = false), CustomizeTileView {
+) : QSTileViewImplNew(context, icon, false), CustomizeTileView {
 
     override var shouldShowSecondaryLabel = true
 
@@ -42,26 +42,21 @@ class CustomizeTileViewReal(
     override var showSideView = true
         set(value) {
             field = value
-            if (!showSideView) sideView.visibility = GONE
+            if (!showSideView) sideView.visibility = INVISIBLE
         }
 
     override fun handleStateChanged(state: QSTile.State) {
         super.handleStateChanged(state)
         showRippleEffect = false
         secondaryLabel.visibility = getVisibilityState(state.secondaryLabel)
-        if (!showSideView) sideView.visibility = GONE
-    }
-
-    override fun createAndAddLabels() {
-        shouldShowSecondaryLabel = true
-        super.createAndAddLabels()
+        if (!showSideView) sideView.visibility = INVISIBLE
     }
 
     private fun getVisibilityState(text: CharSequence?): Int {
         return if (showAppLabel && !TextUtils.isEmpty(text)) {
             VISIBLE
         } else {
-            GONE
+            INVISIBLE
         }
     }
 
@@ -76,13 +71,19 @@ class CustomizeTileViewReal(
     override fun changeState(state: QSTile.State) {
         handleStateChanged(state)
     }
+
+    override fun loadTunables() {
+        super.loadTunables()
+        allowChevron = false
+        shouldShowSecondaryLabel = true
+        shouldAllowPrimaryLabel = true
+    }
 }
 
-/**
- * Class for displaying tiles in [QSCustomizer] with the new design (labels on the side).
- */
-interface CustomizeTileView {
-    var showAppLabel: Boolean
-    var showSideView: Boolean
-    fun changeState(state: QSTile.State)
+class CustomizeTileViewBig(
+    context: Context,
+    icon: QSIconView
+) : CustomizeTileViewNew(context, icon) {
+    override var showSideView = false
+        set(value) {} // feign ignorance
 }

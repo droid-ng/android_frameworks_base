@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2020 The Android Open Source Project
+ * Copyright (C) 2023 droid-ng
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,10 +29,12 @@ import com.android.systemui.R;
 import com.android.systemui.dump.DumpManager;
 import com.android.systemui.media.controls.ui.MediaHierarchyManager;
 import com.android.systemui.media.controls.ui.MediaHost;
+import com.android.systemui.plugins.qs.MultiQSTile;
 import com.android.systemui.plugins.qs.QSTile;
 import com.android.systemui.qs.customize.QSCustomizerController;
 import com.android.systemui.qs.dagger.QSScope;
 import com.android.systemui.qs.logging.QSLogger;
+import com.android.systemui.util.Utils;
 import com.android.systemui.util.leak.RotationUtils;
 
 import java.util.ArrayList;
@@ -66,7 +69,7 @@ public class QuickQSPanelController extends QSPanelControllerBase<QuickQSPanel> 
     protected void onInit() {
         super.onInit();
         updateMediaExpansion();
-        mMediaHost.setShowsOnlyActiveMedia(true);
+        mMediaHost.setShowsOnlyActiveMedia(Utils.useQsMediaPlayer(getContext(), true));
         mMediaHost.init(MediaHierarchyManager.LOCATION_QQS);
     }
 
@@ -104,7 +107,9 @@ public class QuickQSPanelController extends QSPanelControllerBase<QuickQSPanel> 
 
     @Override
     protected void onConfigurationChanged() {
-        int newMaxTiles = getResources().getInteger(R.integer.quick_qs_panel_max_tiles);
+        int newMaxTiles = NewQsHelper.shouldDisallowDynamicQsRow(mView.getContext()) ?
+            (NewQsHelper.getQqsRowCountForCurrentOrientation(mView.getContext()) * NewQsHelper.getQqsColumnCountForCurrentOrientation(mView.getContext())) :
+            getResources().getInteger(R.integer.quick_qs_panel_max_tiles);
         if (newMaxTiles != mView.getNumQuickTiles()) {
             setMaxTiles(newMaxTiles);
         }
@@ -113,13 +118,22 @@ public class QuickQSPanelController extends QSPanelControllerBase<QuickQSPanel> 
 
     @Override
     public void setTiles() {
+        boolean hasMusicPlayer = false;
         List<QSTile> tiles = new ArrayList<>();
+        int offset = 0;
         for (QSTile tile : mHost.getTiles()) {
             tiles.add(tile);
-            if (tiles.size() == mView.getNumQuickTiles()) {
+            if (tile instanceof MultiQSTile) {
+                MultiQSTile multiTile = (MultiQSTile) tile;
+                offset += (multiTile.getRowsConsumed() * multiTile.getColumnsConsumed()) - 1;
+            }
+            if ("mediahost".equals(tile.getTileSpec()))
+                hasMusicPlayer = true;
+            if (tiles.size() + offset >= mView.getNumQuickTiles()) {
                 break;
             }
         }
+        NewQsHelper.setShouldSkipQqsOnExpansion(!hasMusicPlayer);
         super.setTiles(tiles, /* collapsedView */ true);
     }
 

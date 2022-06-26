@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2015 The Android Open Source Project
+ * Copyright (C) 2022-2023 droid-ng
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +26,7 @@ import android.widget.LinearLayout;
 
 import com.android.internal.logging.UiEventLogger;
 import com.android.systemui.R;
+import com.android.systemui.plugins.qs.MultiQSTile;
 import com.android.systemui.plugins.qs.QSTile;
 import com.android.systemui.plugins.qs.QSTile.SignalState;
 import com.android.systemui.plugins.qs.QSTile.State;
@@ -43,7 +45,9 @@ public class QuickQSPanel extends QSPanel {
 
     public QuickQSPanel(Context context, AttributeSet attrs) {
         super(context, attrs);
-        mMaxTiles = getResources().getInteger(R.integer.quick_qs_panel_max_tiles);
+        mMaxTiles = NewQsHelper.shouldDisallowDynamicQsRow(context) ?
+            NewQsHelper.getQqsRowCountForCurrentOrientation(context) * NewQsHelper.getQqsColumnCountForCurrentOrientation(context) :
+            getResources().getInteger(R.integer.quick_qs_panel_max_tiles);
     }
 
     @Override
@@ -193,15 +197,48 @@ public class QuickQSPanel extends QSPanel {
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT,
                     LayoutParams.WRAP_CONTENT);
             setLayoutParams(lp);
-            setMaxColumns(4);
+            if (NewQsHelper.shouldDisallowDynamicQsRow(mContext)) mResourceColumns = 10000;
+            setMaxColumns(NewQsHelper.shouldDisallowDynamicQsRow(mContext) ?
+                NewQsHelper.getQqsColumnCountForCurrentOrientation(mContext) : 4);
         }
 
         @Override
         public boolean updateResources() {
-            mCellHeightResId = R.dimen.qs_quick_tile_size;
+            if (!NewQsHelper.isAnyTypeOfNewQs(mContext))
+                mCellHeightResId = R.dimen.qs_quick_tile_size;
             boolean b = super.updateResources();
-            mMaxAllowedRows = getResources().getInteger(R.integer.quick_qs_panel_max_rows);
+            mMaxAllowedRows = Math.max(1, NewQsHelper.shouldDisallowDynamicQsRow(mContext) ?
+                NewQsHelper.getQqsRowCountForCurrentOrientation(mContext)
+                : getResources().getInteger(R.integer.quick_qs_panel_max_rows));
+            if (NewQsHelper.shouldDisallowDynamicQsRow(mContext)) mResourceColumns = 10000;
+            setMaxColumns(NewQsHelper.shouldDisallowDynamicQsRow(mContext) ?
+                NewQsHelper.getQqsColumnCountForCurrentOrientation(mContext) : 4);
+            if (updateColumns()) {
+                requestLayout();
+                return true;
+            }
             return b;
+        }
+
+        @Override
+        public boolean updateMaxRows(int allowedHeight, int tilesCount) {
+            int previousRows = mRows;
+            if (!NewQsHelper.shouldDisallowDynamicQsRow(mContext))
+                mRows = mMaxAllowedRows;
+            else
+                mRows = NewQsHelper.getQqsRowCountForCurrentOrientation(mContext);
+            if (mColumns > 0) {
+                // We want at most mMaxAllowedRows, but it could be that we don't have enough tiles to fit
+                // that many rows. In that case, we want
+                // `tilesCount = (mRows - 1) * mColumns + X`
+                // where X is some remainder between 1 and `mColumns - 1`
+                // Adding `mColumns - 1` will guarantee that the final value F will satisfy
+                // `mRows * mColumns <= F < (mRows + 1) * mColumns
+                if (mRows > (tilesCount + mColumns - 1) / mColumns) {
+                    mRows = (tilesCount + mColumns - 1) / mColumns;
+                }
+            }
+            return previousRows != mRows;
         }
 
         @Override
@@ -214,7 +251,14 @@ public class QuickQSPanel extends QSPanel {
         protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
             // Make sure to always use the correct number of rows. As it's determined by the
             // columns, just use as many as needed.
-            updateMaxRows(10000, mRecords.size());
+            int nTiles = mRecords.size();
+            for (QSPanelControllerBase.TileRecord tile : mRecords) {
+                if (tile.tile instanceof MultiQSTile) {
+                    MultiQSTile multiTile = (MultiQSTile) tile.tile;
+                    nTiles += (multiTile.getRowsConsumed() * multiTile.getColumnsConsumed()) - 1;
+                }
+            }
+            updateMaxRows(10000, nTiles);
             super.onMeasure(widthMeasureSpec, heightMeasureSpec);
         }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 The Android Open Source Project
+ * Copyright (C) 2023 droid-ng
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,14 +14,18 @@
  * limitations under the License.
  */
 
-package com.android.systemui.media.controls.util
+package com.android.systemui.qs.tileimpl;
 
-import android.content.Context
-import com.android.systemui.util.Utils
-import javax.inject.Inject
+public interface FrameTileImpl {
+    /**
+     * Frame type
+     * @return 0 (disabled), 1 (mediahost)
+     */
+    public int getFrameType();
 
-/** Provides access to the current value of the feature flag. */
-class MediaFeatureFlag @Inject constructor(private val context: Context) {
-    val enabled
-        get() = Utils.useQsMediaPlayer(context, false)
+    /**
+     * Use consistent size
+     * @return yes/no
+     */
+    public boolean useConsistentSize();
 }

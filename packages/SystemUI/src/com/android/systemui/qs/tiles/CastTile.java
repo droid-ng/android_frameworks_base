@@ -46,6 +46,7 @@ import com.android.systemui.plugins.ActivityStarter;
 import com.android.systemui.plugins.FalsingManager;
 import com.android.systemui.plugins.qs.QSTile.BooleanState;
 import com.android.systemui.plugins.statusbar.StatusBarStateController;
+import com.android.systemui.qs.NewQsHelper;
 import com.android.systemui.qs.QSHost;
 import com.android.systemui.qs.logging.QSLogger;
 import com.android.systemui.qs.tileimpl.QSTileImpl;
@@ -271,6 +272,10 @@ public class CastTile extends QSTileImpl<BooleanState> {
             String noWifi = mContext.getString(R.string.quick_settings_cast_no_wifi);
             state.secondaryLabel = noWifi;
             state.forceExpandIcon = false;
+        }
+        if (state.secondaryLabel != null && !state.secondaryLabel.equals("") && NewQsHelper.shouldUseSmartLabel(mContext)) {
+            state.label = state.secondaryLabel;
+            state.secondaryLabel = "";
         }
         state.stateDescription = state.stateDescription + ", " + state.secondaryLabel;
     }

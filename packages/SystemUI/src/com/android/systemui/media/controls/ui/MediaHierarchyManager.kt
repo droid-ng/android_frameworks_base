@@ -43,6 +43,7 @@ import com.android.systemui.dreams.DreamOverlayStateController
 import com.android.systemui.keyguard.WakefulnessLifecycle
 import com.android.systemui.media.dream.MediaDreamComplication
 import com.android.systemui.plugins.statusbar.StatusBarStateController
+import com.android.systemui.qs.NewQsHelper
 import com.android.systemui.shade.ShadeStateEvents
 import com.android.systemui.shade.ShadeStateEvents.ShadeStateEventsListener
 import com.android.systemui.statusbar.CrossFadeHelper
@@ -538,7 +539,7 @@ constructor(
         panelEventsEvents.addShadeStateEventsListener(
             object : ShadeStateEventsListener {
                 override fun onExpandImmediateChanged(isExpandImmediateEnabled: Boolean) {
-                    skipQqsOnExpansion = isExpandImmediateEnabled
+                    skipQqsOnExpansion = NewQsHelper.shouldSkipQqsOnExpansion(context, isExpandImmediateEnabled)
                     updateDesiredLocation()
                 }
             }
@@ -771,6 +772,8 @@ constructor(
         @MediaLocation currentLocation: Int,
         @MediaLocation previousLocation: Int
     ): Boolean {
+        // update skipQqsOnExpansion to have new value instantly after customize
+        skipQqsOnExpansion = NewQsHelper.shouldSkipQqsOnExpansion(context, skipQqsOnExpansion)
         if (isCurrentlyInGuidedTransformation()) {
             return false
         }
@@ -949,6 +952,8 @@ constructor(
      * otherwise
      */
     private fun getTransformationProgress(): Float {
+        // update skipQqsOnExpansion to have new value instantly after customize
+        skipQqsOnExpansion = NewQsHelper.shouldSkipQqsOnExpansion(context, skipQqsOnExpansion)
         if (skipQqsOnExpansion) {
             return -1.0f
         }
@@ -1153,6 +1158,8 @@ constructor(
             // reattach it without an animation
             return LOCATION_LOCKSCREEN
         }
+        // update skipQqsOnExpansion to have new value instantly after customize
+        skipQqsOnExpansion = NewQsHelper.shouldSkipQqsOnExpansion(context, skipQqsOnExpansion)
         if (skipQqsOnExpansion) {
             // When doing an immediate expand or collapse, we want to keep it in QS.
             return LOCATION_QS

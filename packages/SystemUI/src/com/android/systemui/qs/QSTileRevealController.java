@@ -1,3 +1,20 @@
+/*
+ * Copyright (C) 2018 The Android Open Source Project
+ * Copyright (C) 2023 droid-ng
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.android.systemui.qs;
 
 import static com.android.systemui.Prefs.Key.QS_TILE_SPECS_REVEALED;
@@ -30,7 +47,7 @@ public class QSTileRevealController {
 
     private final Context mContext;
     private final QSPanelController mQSPanelController;
-    private final PagedTileLayout mPagedTileLayout;
+    private final Revealable mPagedTileLayout;
     private final QSCustomizerController mQsCustomizerController;
     private final ArraySet<String> mTilesToReveal = new ArraySet<>();
     private final Handler mHandler = new Handler();
@@ -48,7 +65,7 @@ public class QSTileRevealController {
     };
 
     QSTileRevealController(Context context, QSPanelController qsPanelController,
-            PagedTileLayout pagedTileLayout, QSCustomizerController qsCustomizerController) {
+            Revealable pagedTileLayout, QSCustomizerController qsCustomizerController) {
         mContext = context;
         mQSPanelController = qsPanelController;
         mPagedTileLayout = pagedTileLayout;
@@ -102,7 +119,7 @@ public class QSTileRevealController {
         }
 
         QSTileRevealController create(QSPanelController qsPanelController,
-                PagedTileLayout pagedTileLayout) {
+                Revealable pagedTileLayout) {
             return new QSTileRevealController(mContext, qsPanelController, pagedTileLayout,
                     mQsCustomizerController);
         }

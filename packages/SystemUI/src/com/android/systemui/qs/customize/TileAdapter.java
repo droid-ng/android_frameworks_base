@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2016 The Android Open Source Project
+ * Copyright (C) 2023 droid-ng
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
  * except in compliance with the License. You may obtain a copy of the License at
@@ -14,19 +15,28 @@
 
 package com.android.systemui.qs.customize;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.app.AlertDialog;
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
+import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.os.Handler;
+import android.os.UserHandle;
+import android.util.Pair;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.View.OnLayoutChangeListener;
 import android.view.ViewGroup;
+import android.view.Gravity;
+import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
@@ -34,8 +44,6 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.view.AccessibilityDelegateCompat;
 import androidx.core.view.ViewCompat;
-import androidx.recyclerview.widget.GridLayoutManager;
-import androidx.recyclerview.widget.GridLayoutManager.SpanSizeLookup;
 import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.recyclerview.widget.RecyclerView.ItemDecoration;
@@ -44,6 +52,10 @@ import androidx.recyclerview.widget.RecyclerView.ViewHolder;
 
 import com.android.internal.logging.UiEventLogger;
 import com.android.systemui.R;
+import com.android.systemui.statusbar.phone.SystemUIDialog;
+import com.android.systemui.plugins.qs.QSTile;
+import com.android.systemui.plugins.qs.MultiQSTile;
+import com.android.systemui.qs.NewQsHelper;
 import com.android.systemui.qs.QSEditEvent;
 import com.android.systemui.qs.QSTileHost;
 import com.android.systemui.qs.customize.TileAdapter.Holder;
@@ -54,10 +66,15 @@ import com.android.systemui.qs.dagger.QSThemedContext;
 import com.android.systemui.qs.external.CustomTile;
 import com.android.systemui.qs.tileimpl.QSIconViewImpl;
 import com.android.systemui.qs.tileimpl.QSTileViewImpl;
+import com.android.systemui.toast.SystemUIToast;
+import com.android.systemui.toast.ToastFactory;
 
 import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 import javax.inject.Inject;
 
@@ -73,6 +90,7 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
     private static final int TYPE_ACCESSIBLE_DROP = 2;
     private static final int TYPE_HEADER = 3;
     private static final int TYPE_DIVIDER = 4;
+    private static final int TYPE_TILE2 = 5;
 
     private static final long EDIT_ID = 10000;
     private static final long DIVIDER_ID = 20000;
@@ -83,13 +101,19 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
 
     private static final int NUM_COLUMNS_ID = R.integer.quick_settings_num_columns;
 
+    private static final float TOAST_PARAMS_HORIZONTAL_WEIGHT = 1.0f;
+    private static final float TOAST_PARAMS_VERTICAL_WEIGHT = 1.0f;
+    private static final long SHORT_DURATION_TIMEOUT = 4000;
+
     private final Context mContext;
+    private WindowManager mWindowManager;
+    private ToastFactory mToastFactory;
+
 
     private final Handler mHandler = new Handler();
     private final List<TileInfo> mTiles = new ArrayList<>();
     private final ItemTouchHelper mItemTouchHelper;
     private ItemDecoration mDecoration;
-    private final MarginTileDecoration mMarginDecoration;
     private final int mMinNumTiles;
     private final QSTileHost mHost;
     private int mEditIndex;
@@ -113,22 +137,33 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
     @Nullable
     private RecyclerView mRecyclerView;
     private int mNumColumns;
+    private int columns2;
+    private int columns3;
+    private int columns4;
+    private int qqsRows1;
+    private int qqsRows2;
+    private int rowsPerPage1; // set to -1 for infinite
+    private int rowsPerPage2; // same thing but for secondary orientation
 
     @Inject
     public TileAdapter(
             @QSThemedContext Context context,
             QSTileHost qsHost,
+            WindowManager windowManager,
+            ToastFactory toastFactory,
             UiEventLogger uiEventLogger) {
         mContext = context;
         mHost = qsHost;
         mUiEventLogger = uiEventLogger;
+        mWindowManager = windowManager;
+        mToastFactory = toastFactory;
         mItemTouchHelper = new ItemTouchHelper(mCallbacks);
         mDecoration = new TileItemDecoration(context);
-        mMarginDecoration = new MarginTileDecoration();
         mMinNumTiles = context.getResources().getInteger(R.integer.quick_settings_min_num_tiles);
-        mNumColumns = context.getResources().getInteger(NUM_COLUMNS_ID);
+        mNumColumns = -1;
+        updateNumColumns();
         //mAccessibilityDelegate = new TileAdapterDelegate();
-        mSizeLookup.setSpanIndexCacheEnabled(true);
+        //mSizeLookup.setSpanIndexCacheEnabled(true);
     }
 
     @Override
@@ -147,9 +182,41 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
      * @return {@code true} if the number of columns changed, {@code false} otherwise
      */
     public boolean updateNumColumns() {
-        int numColumns = mContext.getResources().getInteger(NUM_COLUMNS_ID);
-        if (numColumns != mNumColumns) {
-            mNumColumns = numColumns;
+        Configuration cfg = mContext.getResources().getConfiguration();
+        Configuration myCfg = new Configuration(cfg);
+        myCfg.orientation = cfg.orientation == Configuration.ORIENTATION_LANDSCAPE ?
+            Configuration.ORIENTATION_PORTRAIT : Configuration.ORIENTATION_LANDSCAPE;
+        Context otherCtx = mContext.createConfigurationContext(myCfg);
+        int columns1 = NewQsHelper.shouldDisallowDynamicQsRow(mContext)
+            ? NewQsHelper.getQsColumnCountForCurrentOrientation(mContext)
+            : mContext.getResources().getInteger(NUM_COLUMNS_ID);
+        columns2 = NewQsHelper.shouldDisallowDynamicQsRow(mContext) ?
+            NewQsHelper.getQsColumnCountForCurrentOrientation(otherCtx) :
+            otherCtx.getResources().getInteger(NUM_COLUMNS_ID);
+        columns3 = NewQsHelper.shouldDisallowDynamicQsRow(mContext) ?
+            NewQsHelper.getQqsColumnCountForCurrentOrientation(mContext) :
+            Math.min(mNumColumns, 4);
+        columns4 = NewQsHelper.shouldDisallowDynamicQsRow(mContext) ?
+            NewQsHelper.getQqsColumnCountForCurrentOrientation(otherCtx) :
+            Math.min(columns2, 4);
+        qqsRows1 = NewQsHelper.shouldDisallowDynamicQsRow(mContext) ?
+            NewQsHelper.getQqsRowCountForCurrentOrientation(mContext) :
+            Math.min(columns3 > 0 ? mContext.getResources().getInteger(R.integer.quick_qs_panel_max_tiles) / columns3 : 0,
+            mContext.getResources().getInteger(R.integer.quick_qs_panel_max_rows));
+        qqsRows2 = NewQsHelper.shouldDisallowDynamicQsRow(mContext) ?
+            NewQsHelper.getQqsRowCountForCurrentOrientation(otherCtx) :
+            Math.min(columns4 > 0 ? otherCtx.getResources().getInteger(R.integer.quick_qs_panel_max_tiles) / columns4 : 0,
+            otherCtx.getResources().getInteger(R.integer.quick_qs_panel_max_rows));
+        rowsPerPage1 = NewQsHelper.needVerticalScroll(mContext) ? -1 :
+            (NewQsHelper.shouldDisallowDynamicQsRow(mContext) ?
+            NewQsHelper.getQsRowCountForCurrentOrientation(mContext) :
+            mContext.getResources().getInteger(R.integer.quick_settings_max_rows));
+        rowsPerPage2 = NewQsHelper.needVerticalScroll(mContext) ? -1 :
+            (NewQsHelper.shouldDisallowDynamicQsRow(mContext) ?
+            NewQsHelper.getQsRowCountForCurrentOrientation(otherCtx) :
+            otherCtx.getResources().getInteger(R.integer.quick_settings_max_rows));
+        if (columns1 != mNumColumns) {
+            mNumColumns = columns1;
             return true;
         } else {
             return false;
@@ -166,14 +233,6 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
 
     public ItemDecoration getItemDecoration() {
         return mDecoration;
-    }
-
-    public ItemDecoration getMarginItemDecoration() {
-        return mMarginDecoration;
-    }
-
-    public void changeHalfMargin(int halfMargin) {
-        mMarginDecoration.setHalfMargin(halfMargin);
     }
 
     public void saveSpecs(QSTileHost host) {
@@ -270,6 +329,12 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
         if (mTiles.get(position) == null) {
             return TYPE_EDIT;
         }
+        if (findTileRet(mTiles.get(position).spec, tile -> (
+            tile instanceof MultiQSTile ?
+            (((MultiQSTile) tile).getColumnsConsumed() > 1) || (((MultiQSTile) tile).getRowsConsumed() > 1)
+            : false))) {
+            return TYPE_TILE2;
+        }
         return TYPE_TILE;
     }
 
@@ -290,7 +355,18 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
         }
         FrameLayout frame = (FrameLayout) inflater.inflate(R.layout.qs_customize_tile_frame, parent,
                 false);
-        View view = new CustomizeTileView(context, new QSIconViewImpl(context));
+        frame.setClipChildren(false);
+        frame.setClipToPadding(false);
+        View view;
+        if (viewType == TYPE_TILE2)
+            view = new CustomizeTileViewBig(context, new QSIconViewImpl(context));
+        else if (NewQsHelper.isAnyTypeOfNewQs(context))
+            view = new CustomizeTileViewNew(context, new QSIconViewImpl(context));
+        else
+            view = new CustomizeTileViewReal(context, new QSIconViewImpl(context));
+        if (view instanceof CustomizeTileViewNew && !(view instanceof CustomizeTileViewBig)) {
+            ((CustomizeTileViewNew) view).setIsNew2(NewQsHelper.shouldBeRoundTile(context));
+        }
         frame.addView(view);
         return new Holder(frame);
     }
@@ -378,10 +454,18 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
         CustomizeTileView tileView =
                 Objects.requireNonNull(
                         holder.getTileAsCustomizeView(), "The holder must have a tileView");
+        if (holder.getItemViewType() == TYPE_TILE2) {
+            final Pair consumed = findTileRet(info.spec, tile ->
+                new Pair<>(tile instanceof MultiQSTile ? ((MultiQSTile) tile).getRowsConsumed() : 1,
+                    tile instanceof MultiQSTile ? ((MultiQSTile) tile).getColumnsConsumed() : 1));
+            int rowsConsumed = (Integer) consumed.first;
+            int columnsConsumed = (Integer) consumed.second;
+            ((CustomizeTileViewBig) tileView).setSize(rowsConsumed, columnsConsumed, 0, 0);
+        }
         tileView.changeState(info.state);
         tileView.setShowAppLabel(position > mEditIndex && !info.isSystem);
         // Don't show the side view for third party tiles, as we don't have the actual state.
-        tileView.setShowSideView(position < mEditIndex || info.isSystem);
+        tileView.setShowSideView(!NewQsHelper.shouldBeRoundTile(mContext) && (position < mEditIndex || info.isSystem));
         holder.mTileView.setSelected(true);
         /*holder.mTileView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         holder.mTileView.setClickable(true);
@@ -393,12 +477,16 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
             @Override
             public void onClick(View v) {
                 int position = holder.getLayoutPosition();
-                if (position < mEditIndex) {
-                    if (canRemoveTiles()) {
-                        move(position, mEditIndex);
-                    }
-                } else {
-                    move(position, mEditIndex);
+                boolean b = (position >= mEditIndex || canRemoveTiles()) && move(position, mEditIndex);
+                if (!b) {
+                    AlertDialog dialog = new AlertDialog.Builder(mContext)
+                        .setTitle(R.string.qs_cant_add_tile)
+                        .setMessage(R.string.qs_cant_add_tile_msg)
+                        .setPositiveButton(R.string.ok, (d, i) -> d.dismiss())
+                        .create();
+                    SystemUIDialog.applyFlags(dialog);
+                    SystemUIDialog.registerDismissListener(dialog);
+                    dialog.show();
                 }
             }
         });
@@ -516,7 +604,7 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
         return true;
     }
 
-    public SpanSizeLookup getSizeLookup() {
+    public SpannedGridLayoutManager.GridSpanLookup getSizeLookup() {
         return mSizeLookup;
     }
 
@@ -528,17 +616,124 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
         if (to == from) {
             return true;
         }
-        move(from, to, mTiles, notify);
-        updateDividerLocations();
-        if (to >= mEditIndex) {
-            mUiEventLogger.log(QSEditEvent.QS_EDIT_REMOVE, 0, strip(mTiles.get(to)));
-        } else if (from >= mEditIndex) {
-            mUiEventLogger.log(QSEditEvent.QS_EDIT_ADD, 0, strip(mTiles.get(to)));
-        } else {
-            mUiEventLogger.log(QSEditEvent.QS_EDIT_MOVE, 0, strip(mTiles.get(to)));
+        ArrayList<Pair<Integer, Integer>> moveStrategy = new ArrayList<>();
+        boolean canMove = true;
+        if (notify) {
+            canMove &= mCallbacks.canDropOver(mRecyclerView, mRecyclerView.findViewHolderForAdapterPosition(from),
+                    mRecyclerView.findViewHolderForAdapterPosition(to));
+            if (canMove) {
+                moveStrategy.add(new Pair<>(from, to));
+                // Now reorder all 1x1 tiles to fix layout
+                ArrayList<Pair<Integer, Pair<Integer, Integer>>> tileStack = new ArrayList<>();
+                for (int i = 1; i < (to > mEditIndex || (from < mEditIndex && to == mEditIndex)
+                    ? mEditIndex - 1 : (from > mEditIndex ? mEditIndex + 1 : mEditIndex)); i++) {
+                    int oldPosition = i;
+                    for (Pair<Integer, Integer> p : moveStrategy) {
+                        // Because the move() calls are one after another, the order shuffles around. Get pos BEFORE moving
+                        oldPosition = oldPosition == p.second ? p.first : (p.first < p.second ?
+                            (oldPosition < p.first ? oldPosition : (oldPosition > p.second ? oldPosition : oldPosition + 1))
+                            : (oldPosition < p.second ? oldPosition : (oldPosition > p.first ? oldPosition : oldPosition - 1)));
+                    }
+                    final String spec = mTiles.get(oldPosition).spec;
+                    final Pair consumed = findTileRet(spec, tile ->
+                        new Pair<>(tile instanceof MultiQSTile ? ((MultiQSTile) tile).getRowsConsumed() : 1,
+                            tile instanceof MultiQSTile ? ((MultiQSTile) tile).getColumnsConsumed() : 1));
+                    tileStack.add(new Pair<>(oldPosition, consumed));
+                }
+                int column = 0;
+                int row = 0;
+                int lastPlacedPos = 1;
+                LinkedList<Integer> /* mostly used as Queue */ offsets = new LinkedList<Integer>();
+                while (tileStack.size() > 0) {
+                    if (column >= mNumColumns) {
+                        row++;
+                        if (offsets.size() > 0) offsets.removeFirst();
+                        column = 0;
+                    }
+                    if (offsets.size() > 0 && (offsets.get(0) & (int) Math.pow(2, column)) > 0) {
+                        column++;
+                        continue;
+                    }
+
+                    int rowsWithAnchor = 1, columnsWithAnchor = 1, oldPosition = -1, i = 0;
+                    boolean fits = false;
+                    while (!fits) {
+                        fits = true;
+                        Pair<Integer, Pair<Integer, Integer>> tile = tileStack.get(i++);
+                        oldPosition = tile.first;
+                        rowsWithAnchor = tile.second.first;
+                        columnsWithAnchor = tile.second.second;
+                        fits &= column + (columnsWithAnchor - 1) < mNumColumns;
+                        if (fits) {
+                            for (int j = 0; j < rowsWithAnchor; j++) {
+                                for (int k = 0; k < columnsWithAnchor; k++) {
+                                    fits &= !(offsets.size() > j && (offsets.get(j) & (int) Math.pow(2, column + k)) > 0);
+                                }
+                            }
+                        }
+                        if (fits) {
+                            // QQS, primary orientation
+                            fits &= validateLocation(column, row, columns3, qqsRows1, columnsWithAnchor, rowsWithAnchor, true);
+                            // QQS, secondary orientation
+                            fits &= validateLocation(column, row, columns4, qqsRows2, columnsWithAnchor, rowsWithAnchor, true);
+                            // QS, primary orientation
+                            fits &= validateLocation(column, row, mNumColumns, rowsPerPage1, columnsWithAnchor, rowsWithAnchor, false);
+                            // QS, secondary orientation
+                            fits &= validateLocation(column, row, columns2, rowsPerPage2, columnsWithAnchor, rowsWithAnchor, false);
+                        }
+                        if (!fits && i >= tileStack.size()) {
+                            canMove = false;
+                            break;
+                        }
+                    }
+                    if (!canMove) break;
+                    tileStack.remove(--i);
+                    int newPosition = oldPosition;
+                    for (Pair<Integer, Integer> p : moveStrategy) {
+                        // Because the move() calls are one after another, the order shuffles around. Get pos AFTER moving
+                        newPosition = newPosition == p.first ? p.second : (p.first < p.second ?
+                            (newPosition < p.first ? newPosition : (newPosition > p.second ? newPosition : newPosition - 1))
+                            : (newPosition < p.second ? newPosition : (newPosition > p.first ? newPosition : newPosition + 1)));
+                    }
+                    moveStrategy.add(new Pair<>(newPosition, lastPlacedPos++));
+
+                    for (int j = 0; j < rowsWithAnchor; j++) {
+                        int offset = 0;
+                        if (offsets.size() > j) offset = offsets.get(j);
+                        for (int k = 0; k < columnsWithAnchor; k++) {
+                            offset |= (int) Math.pow(2, column + k);
+                        }
+                        if (offsets.size() > j)
+                            offsets.set(j, offset);
+                        else {
+                            if (offsets.size() != j) {
+                                for (int l = offsets.size(); l < j; l++) {
+                                    offsets.addLast(0);
+                                }
+                            }
+                            offsets.addLast(offset);
+                        }
+                    }
+                    column++;
+                }
+            }
         }
-        saveSpecs(mHost);
-        return true;
+        if (canMove) {
+            for (Pair<Integer, Integer> toMove : moveStrategy) {
+                if (toMove.first == toMove.second) continue;
+                move(toMove.first, toMove.second, mTiles, notify);
+            }
+            updateDividerLocations();
+            if (to >= mEditIndex) {
+                mUiEventLogger.log(QSEditEvent.QS_EDIT_REMOVE, 0, strip(mTiles.get(to)));
+            } else if (from >= mEditIndex) {
+                mUiEventLogger.log(QSEditEvent.QS_EDIT_ADD, 0, strip(mTiles.get(to)));
+            } else {
+                mUiEventLogger.log(QSEditEvent.QS_EDIT_MOVE, 0, strip(mTiles.get(to)));
+            }
+            saveSpecs(mHost);
+        }
+        return canMove;
     }
 
     private void updateDividerLocations() {
@@ -559,6 +754,30 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
         if (mTiles.size() - 1 == mTileDividerIndex) {
             notifyItemChanged(mTileDividerIndex);
         }
+    }
+
+    private QSTile findTile(String spec) {
+        return mHost.getTiles().stream().filter(i -> spec.equals(i.getTileSpec())).findAny().orElse(null);
+    }
+
+    private <T> T findTileRet(String spec, Function<QSTile, T> consumer) {
+        QSTile tile = findTile(spec);
+        T ret;
+        if (tile != null) {
+            ret = consumer.apply(tile);
+        } else {
+            tile = mHost.createTile(spec);
+            ret = consumer.apply(tile);
+            tile.destroy();
+        }
+        return ret;
+    }
+
+    private void findTile(String spec, Consumer<QSTile> consumer) {
+        findTileRet(spec, tile -> {
+            consumer.accept(tile);
+            return null;
+        });
     }
 
     private static String strip(TileInfo tileInfo) {
@@ -593,6 +812,17 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
         @Nullable
         public CustomizeTileView getTileAsCustomizeView() {
             return (CustomizeTileView) mTileView;
+        }
+
+        @Nullable
+        public SpannedGridLayoutManager.LayoutParams getGridLayoutParams() {
+            if (mTileView == null)
+                return null;
+            View tileView = (View) mTileView;
+            if (tileView.getParent() instanceof FrameLayout) {
+                tileView = (FrameLayout) tileView.getParent();
+            }
+            return (SpannedGridLayoutManager.LayoutParams) tileView.getLayoutParams();
         }
 
         public void clearDrag() {
@@ -662,14 +892,24 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
         }
     }
 
-    private final SpanSizeLookup mSizeLookup = new SpanSizeLookup() {
+    private final SpannedGridLayoutManager.GridSpanLookup mSizeLookup = new SpannedGridLayoutManager.GridSpanLookup() {
         @Override
-        public int getSpanSize(int position) {
+        public SpannedGridLayoutManager.SpanInfo getSpanInfo(int position) {
             final int type = getItemViewType(position);
-            if (type == TYPE_EDIT || type == TYPE_DIVIDER || type == TYPE_HEADER) {
-                return mNumColumns;
-            } else {
-                return 1;
+            final TileInfo gTile = mTiles.size() > position ? mTiles.get(position) : null;
+            if (type == TYPE_EDIT || type == TYPE_DIVIDER || type == TYPE_HEADER) { // UI element
+                return new SpannedGridLayoutManager.SpanInfo(mNumColumns, 1);
+            } else if (gTile != null && gTile.spec != null) { // QS tile
+                return findTileRet(gTile.spec, tile -> {
+                    if (tile != null && tile instanceof MultiQSTile) {
+                        MultiQSTile multiTile = (MultiQSTile) tile;
+                        return new SpannedGridLayoutManager.SpanInfo(multiTile.getColumnsConsumed(), multiTile.getRowsConsumed());
+                    } else {
+                        return SpannedGridLayoutManager.SpanInfo.SINGLE_CELL;
+                    }
+                });
+            } else { // Fallback
+                return SpannedGridLayoutManager.SpanInfo.SINGLE_CELL;
             }
         }
     };
@@ -706,58 +946,6 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
                 mDrawable.setBounds(0, top, width, bottom);
                 mDrawable.draw(c);
                 break;
-            }
-        }
-    }
-
-    private static class MarginTileDecoration extends ItemDecoration {
-        private int mHalfMargin;
-
-        public void setHalfMargin(int halfMargin) {
-            mHalfMargin = halfMargin;
-        }
-
-        @Override
-        public void getItemOffsets(@NonNull Rect outRect, @NonNull View view,
-                @NonNull RecyclerView parent, @NonNull State state) {
-            if (parent.getLayoutManager() == null) return;
-
-            GridLayoutManager lm = ((GridLayoutManager) parent.getLayoutManager());
-            int column = ((GridLayoutManager.LayoutParams) view.getLayoutParams()).getSpanIndex();
-
-            if (view instanceof TextView) {
-                super.getItemOffsets(outRect, view, parent, state);
-            } else {
-                if (column != 0 && column != lm.getSpanCount() - 1) {
-                    // In a column that's not leftmost or rightmost (half of the margin between
-                    // columns).
-                    outRect.left = mHalfMargin;
-                    outRect.right = mHalfMargin;
-                } else {
-                    // Leftmost or rightmost column
-                    if (parent.isLayoutRtl()) {
-                        if (column == 0) {
-                            // Rightmost column
-                            outRect.left = mHalfMargin;
-                            outRect.right = 0;
-                        } else {
-                            // Leftmost column
-                            outRect.left = 0;
-                            outRect.right = mHalfMargin;
-                        }
-                    } else {
-                        // Non RTL
-                        if (column == 0) {
-                            // Leftmost column
-                            outRect.left = 0;
-                            outRect.right = mHalfMargin;
-                        } else {
-                            // Rightmost column
-                            outRect.left = mHalfMargin;
-                            outRect.right = 0;
-                        }
-                    }
-                }
             }
         }
     }
@@ -805,14 +993,84 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
         @Override
         public boolean canDropOver(RecyclerView recyclerView, ViewHolder current,
                 ViewHolder target) {
-            final int position = target.getAdapterPosition();
-            if (position == 0 || position == RecyclerView.NO_POSITION){
+            if (current == null || target == null) {
                 return false;
             }
-            if (!canRemoveTiles() && current.getAdapterPosition() < mEditIndex) {
-                return position < mEditIndex;
+            final int position = target.getAdapterPosition();
+            final int from = current.getAdapterPosition();
+            if (from == 0 || from == RecyclerView.NO_POSITION || position == 0 || position == RecyclerView.NO_POSITION) {
+                return false;
             }
-            return position <= mEditIndex + 1;
+            if (!canRemoveTiles() && from < mEditIndex && position >= mEditIndex) {
+                return false; // don't delete if we should not delete
+            }
+            if (position > mEditIndex || (from < mEditIndex && position == mEditIndex)) {
+                return true; // but allow deleting tiles with simple logic
+            }
+            if (position > mEditIndex + 1) return false; // (AOSP) make deleting simpler
+            // Below code has to cover big tile add and move cases
+            final String spec = mTiles.get(from).spec;
+            final Pair consumed = findTileRet(spec, tile ->
+                new Pair<>(tile instanceof MultiQSTile ? ((MultiQSTile) tile).getRowsConsumed() : 1,
+                    tile instanceof MultiQSTile ? ((MultiQSTile) tile).getColumnsConsumed() : 1));
+            final SpannedGridLayoutManager.LayoutParams lp = ((Holder) target).getGridLayoutParams();
+            int rowsConsumed = (Integer) consumed.first;
+            int columnsConsumed = (Integer) consumed.second;
+            int row = -1;
+            int column = -1;
+            if (lp != null) {
+                row = lp.row - 1; // Header TextView counts as row
+                column = lp.column;
+                // If we have our 2x2 tile at (2, 0) and are dragging to (4, 0),
+                // we end up at (3, 0) instead because if we move away, all tiles
+                // will move one column back. Address this
+                if (from < position) {
+                    column -= (columnsConsumed) - 1;
+                    if (column < 0) return false;
+                }
+            } else { // We are trying to place a tile to the last position where no other tile currently is.
+                ViewHolder pre = recyclerView.findViewHolderForAdapterPosition(position - 1);
+                if (pre != null) {
+                    final SpannedGridLayoutManager.LayoutParams subLp = ((Holder) pre).getGridLayoutParams();
+                    if (subLp != null) {
+                        final Pair subconsumed = findTileRet(mTiles.get(position - 1).spec, tile ->
+                            new Pair<>(tile instanceof MultiQSTile ? ((MultiQSTile) tile).getRowsConsumed() : 1,
+                                tile instanceof MultiQSTile ? ((MultiQSTile) tile).getColumnsConsumed() : 1));
+                        int rowsSubConsumed = (Integer) subconsumed.first;
+                        int columnsSubConsumed = (Integer) subconsumed.second;
+                        row = subLp.row - 1; // Header TextView counts as row
+                        column = subLp.column + 1;
+                        if ((subLp.column + columnsSubConsumed) == mNumColumns) {
+                            column = 0;
+                            row++;
+                            if (rowsSubConsumed > 1) {
+                                if (columnsSubConsumed == mNumColumns)
+                                    row += rowsSubConsumed - 1;
+                                else if ((mNumColumns - columnsSubConsumed) < columnsConsumed)
+                                    return false;
+                                else
+                                    column = columnsSubConsumed;
+                            }
+                        }
+                    } else if ((columnsConsumed * rowsConsumed) > 1) {
+                        return false;
+                    }
+                } else if ((columnsConsumed * rowsConsumed) > 1) {
+                    return false;
+                }
+            }
+            if (row >= 0) {
+                // QQS, primary orientation
+                if (!validateLocation(column, row, columns3, qqsRows1, columnsConsumed, rowsConsumed, true)) return false;
+                // QQS, secondary orientation
+                if (!validateLocation(column, row, columns4, qqsRows2, columnsConsumed, rowsConsumed, true)) return false;
+                // QS, primary orientation
+                if (!validateLocation(column, row, mNumColumns, rowsPerPage1, columnsConsumed, rowsConsumed, false)) return false;
+                // QS, secondary orientation
+                if (!validateLocation(column, row, columns2, rowsPerPage2, columnsConsumed, rowsConsumed, false)) return false;
+            }
+            // If we are here, we can move the tile!
+            return true;
         }
 
         @Override
@@ -830,6 +1088,8 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
             }
         }
 
+        private long rateLimit = 0;
+
         @Override
         public boolean onMove(RecyclerView recyclerView, ViewHolder viewHolder, ViewHolder target) {
             int from = viewHolder.getAdapterPosition();
@@ -838,7 +1098,13 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
                     to == 0 || to == RecyclerView.NO_POSITION) {
                 return false;
             }
-            return move(from, to);
+            if (!canDropOver(recyclerView, viewHolder, target)) return false;
+            boolean b = move(from, to);
+            if (!b && System.currentTimeMillis() - rateLimit > (SHORT_DURATION_TIMEOUT + 500)) {
+                rateLimit = System.currentTimeMillis();
+                makeOverlayToast(R.string.qs_cant_add_tile);
+            }
+            return b;
         }
 
         @Override
@@ -873,5 +1139,73 @@ public class TileAdapter extends RecyclerView.Adapter<Holder> implements TileSta
                 + res.getDimensionPixelSize(R.dimen.qs_brightness_margin_bottom)
                 - buttonMinWidth
                 - res.getDimensionPixelSize(R.dimen.qs_tile_margin_top_bottom);
+    }
+
+    private boolean validateLocation(int inColumn, int inRow, int columns, int rows, int columnsConsumed, int rowsConsumed, boolean firstPageOnly) {
+        if (!(columns > 0 && rows > 0)) return true;
+        int position = (inRow * mNumColumns) + inColumn;
+        int row = position / columns;
+        int column = position % columns;
+        if ((!firstPageOnly || position < (columns * rows))) {
+            if ((rows - (row % rows)) < rowsConsumed) return false;
+            if ((columns - column) < columnsConsumed) return false;
+        }
+        return true;
+    }
+
+    private void makeOverlayToast(int stringId) {
+        final Resources res = mContext.getResources();
+
+        final SystemUIToast systemUIToast = mToastFactory.createToast(mContext,
+                res.getString(stringId), mContext.getPackageName(), UserHandle.myUserId(),
+                res.getConfiguration().orientation);
+        if (systemUIToast == null) {
+            return;
+        }
+
+        View toastView = systemUIToast.getView();
+
+        final WindowManager.LayoutParams params = new WindowManager.LayoutParams();
+        params.height = WindowManager.LayoutParams.WRAP_CONTENT;
+        params.width = WindowManager.LayoutParams.WRAP_CONTENT;
+        params.format = PixelFormat.TRANSLUCENT;
+        params.type = WindowManager.LayoutParams.TYPE_STATUS_BAR_SUB_PANEL;
+        params.y = systemUIToast.getYOffset();
+        params.flags |= WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+
+        int absGravity = Gravity.getAbsoluteGravity(systemUIToast.getGravity(),
+                res.getConfiguration().getLayoutDirection());
+        params.gravity = absGravity;
+        if ((absGravity & Gravity.HORIZONTAL_GRAVITY_MASK) == Gravity.FILL_HORIZONTAL) {
+            params.horizontalWeight = TOAST_PARAMS_HORIZONTAL_WEIGHT;
+        }
+        if ((absGravity & Gravity.VERTICAL_GRAVITY_MASK) == Gravity.FILL_VERTICAL) {
+            params.verticalWeight = TOAST_PARAMS_VERTICAL_WEIGHT;
+        }
+
+        mWindowManager.addView(toastView, params);
+
+        Animator inAnimator = systemUIToast.getInAnimation();
+        if (inAnimator != null) {
+            inAnimator.start();
+        }
+
+        mHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                Animator outAnimator = systemUIToast.getOutAnimation();
+                if (outAnimator != null) {
+                    outAnimator.start();
+                    outAnimator.addListener(new AnimatorListenerAdapter() {
+                        @Override
+                        public void onAnimationEnd(Animator animator) {
+                            mWindowManager.removeViewImmediate(toastView);
+                        }
+                    });
+                }
+            }
+        }, SHORT_DURATION_TIMEOUT);
     }
 }

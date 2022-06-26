@@ -31,6 +31,7 @@ import com.android.systemui.statusbar.StatusBarState
 import com.android.systemui.statusbar.SysuiStatusBarStateController
 import com.android.systemui.statusbar.notification.stack.NotificationStackScrollLayoutController
 import com.android.systemui.statusbar.policy.ConfigurationController
+import com.android.systemui.util.LargeScreenUtils
 import java.io.PrintWriter
 import javax.inject.Inject
 
@@ -84,7 +85,7 @@ constructor(
     }
 
     private fun updateResources() {
-        inSplitShade = context.resources.getBoolean(R.bool.config_use_split_notification_shade)
+        inSplitShade = LargeScreenUtils.shouldUseSplitNotificationShade(context.resources)
     }
 
     private fun onPanelStateChanged(@PanelState state: Int) {

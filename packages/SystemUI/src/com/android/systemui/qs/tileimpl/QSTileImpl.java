@@ -63,6 +63,7 @@ import com.android.systemui.Dumpable;
 import com.android.systemui.animation.ActivityLaunchAnimator;
 import com.android.systemui.plugins.ActivityStarter;
 import com.android.systemui.plugins.FalsingManager;
+import com.android.systemui.plugins.qs.MultiQSTile;
 import com.android.systemui.plugins.qs.QSIconView;
 import com.android.systemui.plugins.qs.QSTile;
 import com.android.systemui.plugins.qs.QSTile.State;
@@ -84,7 +85,7 @@ import java.util.ArrayList;
  *
  * @param <TState> see above
  */
-public abstract class QSTileImpl<TState extends State> implements QSTile, LifecycleOwner, Dumpable {
+public abstract class QSTileImpl<TState extends State> implements QSTile, MultiQSTile, FrameTileImpl, LifecycleOwner, Dumpable {
     protected final String TAG = "Tile." + getClass().getSimpleName();
     protected static final boolean DEBUG = Log.isLoggable("Tile", Log.DEBUG);
 
@@ -235,6 +236,26 @@ public abstract class QSTileImpl<TState extends State> implements QSTile, Lifecy
 
     protected long getStaleTimeout() {
         return DEFAULT_STALE_TIMEOUT;
+    }
+
+    @Override
+    public int getRowsConsumed() {
+        return 1;
+    }
+
+    @Override
+    public int getColumnsConsumed() {
+        return 1;
+    }
+
+    @Override
+    public int getFrameType() {
+        return 0; // disabled
+    }
+
+    @Override
+    public boolean useConsistentSize() {
+        return false;
     }
 
     @VisibleForTesting

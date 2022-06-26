@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
+ * Copyright (C) 2022-2023 droid-ng
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -121,7 +122,7 @@ public class QSPanel extends LinearLayout implements Tunable {
 
     public QSPanel(Context context, AttributeSet attrs) {
         super(context, attrs);
-        mUsingMediaPlayer = useQsMediaPlayer(context);
+        mUsingMediaPlayer = useQsMediaPlayer(context, true);
         mMediaTotalBottomMargin = getResources().getDimensionPixelSize(
                 R.dimen.quick_settings_bottom_margin_media);
         mMediaTopMargin = getResources().getDimensionPixelSize(
@@ -220,8 +221,9 @@ public class QSPanel extends LinearLayout implements Tunable {
     /** */
     public QSTileLayout getOrCreateTileLayout() {
         if (mTileLayout == null) {
+            boolean useVerticalScroll = NewQsHelper.needVerticalScroll(mContext);
             mTileLayout = (QSTileLayout) LayoutInflater.from(mContext)
-                    .inflate(R.layout.qs_paged_tile_layout, this, false);
+                    .inflate(useVerticalScroll ? R.layout.new_qs_tile_layout : R.layout.qs_paged_tile_layout, this, false);
             mTileLayout.setLogger(mQsLogger);
             mTileLayout.setSquishinessFraction(mSquishinessFraction);
         }
@@ -452,7 +454,7 @@ public class QSPanel extends LinearLayout implements Tunable {
     }
 
     private boolean needsDynamicRowsAndColumns() {
-        return true;
+        return !NewQsHelper.shouldDisallowDynamicQsRow(mContext);
     }
 
     private void switchAllContentToParent(ViewGroup parent, QSTileLayout newLayout) {
@@ -639,7 +641,9 @@ public class QSPanel extends LinearLayout implements Tunable {
                 mTileLayout.setMaxColumns(horizontal ? 2 : 4);
             }
             updateMargins(mediaHostView);
-            mHorizontalLinearLayout.setVisibility(horizontal ? View.VISIBLE : View.GONE);
+            if (mHorizontalLinearLayout != null) {
+                mHorizontalLinearLayout.setVisibility(horizontal ? View.VISIBLE : View.GONE);
+            }
         }
     }
 

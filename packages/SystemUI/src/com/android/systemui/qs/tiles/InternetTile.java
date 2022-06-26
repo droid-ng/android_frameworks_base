@@ -49,6 +49,7 @@ import com.android.systemui.plugins.qs.QSIconView;
 import com.android.systemui.plugins.qs.QSTile.SignalState;
 import com.android.systemui.plugins.statusbar.StatusBarStateController;
 import com.android.systemui.qs.AlphaControlledSignalTileView;
+import com.android.systemui.qs.NewQsHelper;
 import com.android.systemui.qs.QSHost;
 import com.android.systemui.qs.logging.QSLogger;
 import com.android.systemui.qs.tileimpl.QSTileImpl;
@@ -439,6 +440,10 @@ public class InternetTile extends QSTileImpl<SignalState> {
                 }
             } else {
                 state.icon = ResourceIcon.get(cb.mWifiSignalIconId);
+                if (NewQsHelper.shouldUseSmartLabel(mContext)) {
+                    state.label = state.secondaryLabel;
+                    state.secondaryLabel = "";
+                }
             }
         } else if (cb.mNoDefaultNetwork) {
             if (cb.mNoNetworksAvailable || !cb.mEnabled) {
@@ -457,6 +462,10 @@ public class InternetTile extends QSTileImpl<SignalState> {
             state.icon = ResourceIcon.get(WifiIcons.QS_WIFI_DISABLED);
         } else if (wifiConnected) {
             state.icon = ResourceIcon.get(cb.mWifiSignalIconId);
+            if (NewQsHelper.shouldUseSmartLabel(mContext)) {
+                state.label = state.secondaryLabel;
+                state.secondaryLabel = "";
+            }
         } else if (wifiNotConnected) {
             state.icon = ResourceIcon.get(WifiIcons.QS_WIFI_NO_NETWORK);
         } else {
@@ -510,6 +519,10 @@ public class InternetTile extends QSTileImpl<SignalState> {
             state.icon = new SignalIcon(cb.mMobileSignalIconId);
             state.secondaryLabel = appendMobileDataType(cb.mDataSubscriptionName,
                     getMobileDataContentName(cb));
+            if (NewQsHelper.shouldUseSmartLabel(mContext)) {
+                state.label = state.secondaryLabel;
+                state.secondaryLabel = "";
+            }
         }
 
         state.contentDescription = state.label;
@@ -534,6 +547,10 @@ public class InternetTile extends QSTileImpl<SignalState> {
         state.state = Tile.STATE_ACTIVE;
         state.icon = ResourceIcon.get(cb.mEthernetSignalIconId);
         state.secondaryLabel = cb.mEthernetContentDescription;
+        if (NewQsHelper.shouldUseSmartLabel(mContext)) {
+            state.label = state.secondaryLabel;
+            state.secondaryLabel = "";
+        }
         if (DEBUG) {
             Log.d(TAG, "handleUpdateEthernetState: " + "SignalState = " + state.toString());
         }

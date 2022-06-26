@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2017 The Android Open Source Project
  * Copyright (C) 2017 The LineageOS Project
+ * Copyright (C) 2023 droid-ng
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use mHost file
  * except in compliance with the License. You may obtain a copy of the License at
@@ -22,10 +23,12 @@ import android.util.Log;
 import androidx.annotation.Nullable;
 
 import com.android.systemui.dagger.SysUISingleton;
+import com.android.systemui.plugins.qs.MultiQSTile;
 import com.android.systemui.plugins.qs.QSFactory;
 import com.android.systemui.plugins.qs.QSIconView;
 import com.android.systemui.plugins.qs.QSTile;
 import com.android.systemui.plugins.qs.QSTileView;
+import com.android.systemui.qs.NewQsHelper;
 import com.android.systemui.qs.QSHost;
 import com.android.systemui.qs.external.CustomTile;
 import com.android.systemui.qs.tiles.AirplaneModeTile;
@@ -50,6 +53,7 @@ import com.android.systemui.qs.tiles.HeadsUpTile;
 import com.android.systemui.qs.tiles.HotspotTile;
 import com.android.systemui.qs.tiles.InternetTile;
 import com.android.systemui.qs.tiles.LocationTile;
+import com.android.systemui.qs.tiles.MediaHostTile;
 import com.android.systemui.qs.tiles.MicrophoneToggleTile;
 import com.android.systemui.qs.tiles.NfcTile;
 import com.android.systemui.qs.tiles.NightDisplayTile;
@@ -119,6 +123,7 @@ public class QSFactoryImpl implements QSFactory {
     private final Provider<VpnTile> mVpnTileProvider;
     private final Provider<VPNTetheringTile> mVPNTetheringTileProvider;
     private final Provider<DataSwitchTile> mDataSwitchTileProvider;
+    private final Provider<MediaHostTile> mMediaHostTileProvider;
 
     private final Lazy<QSHost> mQsHostLazy;
     private final Provider<CustomTile.Builder> mCustomTileBuilderProvider;
@@ -166,7 +171,8 @@ public class QSFactoryImpl implements QSFactory {
             Provider<UsbTetherTile> usbTetherTileProvider,
             Provider<VpnTile> vpnTileProvider,
             Provider<VPNTetheringTile> vpnTetheringTileProvider,
-            Provider<DataSwitchTile> dataSwitchTileProvider) {
+            Provider<DataSwitchTile> dataSwitchTileProvider,
+            Provider<MediaHostTile> mediaHostTileProvider) {
         mQsHostLazy = qsHostLazy;
         mCustomTileBuilderProvider = customTileBuilderProvider;
 
@@ -210,6 +216,7 @@ public class QSFactoryImpl implements QSFactory {
         mVpnTileProvider = vpnTileProvider;
         mVPNTetheringTileProvider = vpnTetheringTileProvider;
         mDataSwitchTileProvider = dataSwitchTileProvider;
+        mMediaHostTileProvider = mediaHostTileProvider;
     }
 
     /** Creates a tile with a type based on {@code tileSpec} */
@@ -306,6 +313,8 @@ public class QSFactoryImpl implements QSFactory {
                 return mVPNTetheringTileProvider.get();
             case "dataswitch":
                 return mDataSwitchTileProvider.get();
+            case "mediahost":
+                return mMediaHostTileProvider.get();
         }
 
         // Custom tiles
@@ -329,6 +338,25 @@ public class QSFactoryImpl implements QSFactory {
     @Override
     public QSTileView createTileView(Context context, QSTile tile, boolean collapsedView) {
         QSIconView icon = tile.createTileView(context);
-        return new QSTileViewImpl(context, icon, collapsedView);
+        QSTileView view = null;
+        MultiQSTile multiTile = tile instanceof MultiQSTile ? (MultiQSTile) tile : null;
+        if (multiTile != null && multiTile.getColumnsConsumed() == 1 && multiTile.getRowsConsumed() == 1)
+            multiTile = null; // 1x1 does not count as multi-tile
+        FrameTileImpl frameTile = tile instanceof FrameTileImpl ? (FrameTileImpl) tile : null;
+        if (frameTile != null && frameTile.getFrameType() == 0)
+            frameTile = null; // disabled does not count as frame tile
+        if (frameTile != null) {
+            view = new QSTileViewImplFrame(context, frameTile.useConsistentSize(), icon);
+        } else if (multiTile != null || NewQsHelper.isAnyTypeOfNewQs(context)) {
+            view = new QSTileViewImplNew(context, icon, collapsedView);
+        } else {
+            view = new QSTileViewImpl(context, icon, collapsedView);
+        }
+        // By default, multi-tiles use quadratic new design. However, custom views are highly recommended
+        if (multiTile != null && view instanceof QSTileViewImplBig) {
+            QSTileViewImplBig myView = (QSTileViewImplBig) view;
+            myView.setSize(multiTile.getColumnsConsumed(), multiTile.getRowsConsumed(), 0, 0);
+        }
+        return view;
     }
 }

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-     Copyright (C) 2016 The Android Open Source Project
+     Copyright (C) 2022 droid-ng
 
      Licensed under the Apache License, Version 2.0 (the "License");
      you may not use this file except in compliance with the License.
@@ -15,10 +15,10 @@
      limitations under the License.
 -->
 
-<FrameLayout
+<com.android.systemui.qs.TileLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_height="wrap_content"
+    android:id="@+id/qs_pager"
+    android:clipChildren="false"
     android:layout_width="match_parent"
-    android:layout_marginTop="@dimen/qs_tile_margin_top_bottom"
-    android:layout_marginBottom="@dimen/qs_tile_margin_top_bottom"
-    android:gravity="center" />
+    android:layout_height="0dp"
+    android:layout_weight="1"/>

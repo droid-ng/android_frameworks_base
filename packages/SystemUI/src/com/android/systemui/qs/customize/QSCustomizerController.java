@@ -30,7 +30,6 @@ import android.widget.Toolbar.OnMenuItemClickListener;
 
 import androidx.annotation.Nullable;
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
-import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.android.internal.logging.UiEventLogger;
@@ -38,6 +37,7 @@ import com.android.systemui.R;
 import com.android.systemui.keyguard.ScreenLifecycle;
 import com.android.systemui.plugins.qs.QSContainerController;
 import com.android.systemui.plugins.qs.QSTile;
+import com.android.systemui.qs.NewQsHelper;
 import com.android.systemui.qs.QSEditEvent;
 import com.android.systemui.qs.QSFragment;
 import com.android.systemui.qs.QSTileHost;
@@ -95,8 +95,8 @@ public class QSCustomizerController extends ViewController<QSCustomizer> {
             mView.updateResources();
             if (mTileAdapter.updateNumColumns()) {
                 RecyclerView.LayoutManager lm = mView.getRecyclerView().getLayoutManager();
-                if (lm instanceof GridLayoutManager) {
-                    ((GridLayoutManager) lm).setSpanCount(mTileAdapter.getNumColumns());
+                if (lm instanceof SpannedGridLayoutManager) {
+                    ((SpannedGridLayoutManager) lm).setSpanCount(mTileAdapter.getNumColumns());
                 }
             }
         }
@@ -128,39 +128,22 @@ public class QSCustomizerController extends ViewController<QSCustomizer> {
         mConfigurationController.addCallback(mConfigurationListener);
 
         mTileQueryHelper.setListener(mTileAdapter);
-        int halfMargin =
-                getResources().getDimensionPixelSize(R.dimen.qs_tile_margin_horizontal) / 2;
-        mTileAdapter.changeHalfMargin(halfMargin);
 
         RecyclerView recyclerView = mView.getRecyclerView();
         recyclerView.setAdapter(mTileAdapter);
         mTileAdapter.getItemTouchHelper().attachToRecyclerView(recyclerView);
-        GridLayoutManager layout =
-                new GridLayoutManager(getContext(), mTileAdapter.getNumColumns()) {
+        SpannedGridLayoutManager layout =
+                new SpannedGridLayoutManager(mTileAdapter.getSizeLookup(), mTileAdapter.getNumColumns(), (NewQsHelper.isAnyTypeOfNewQs(getContext()) ? 0.9f : 2f)) {
             @Override
             public void onInitializeAccessibilityNodeInfoForItem(RecyclerView.Recycler recycler,
                     RecyclerView.State state, View host, AccessibilityNodeInfoCompat info) {
                 // Do not read row and column every time it changes.
             }
-
-            public void calculateItemDecorationsForChild(View child, Rect outRect) {
-                // There's only a single item decoration that cares about the itemOffsets, so
-                // we just call it manually so they are never cached. This way, it's updated as the
-                // tiles are moved around.
-                // It only sets the left and right margin and only cares about tiles (not TextView).
-                if (!(child instanceof TextView)) {
-                    outRect.setEmpty();
-                    mTileAdapter.getMarginItemDecoration().getItemOffsets(outRect, child,
-                            recyclerView, new RecyclerView.State());
-                    ((LayoutParams) child.getLayoutParams()).leftMargin = outRect.left;
-                    ((LayoutParams) child.getLayoutParams()).rightMargin = outRect.right;
-                }
-            }
         };
-        layout.setSpanSizeLookup(mTileAdapter.getSizeLookup());
+        recyclerView.setClipChildren(false);
+        recyclerView.setClipToPadding(false);
         recyclerView.setLayoutManager(layout);
         recyclerView.addItemDecoration(mTileAdapter.getItemDecoration());
-        recyclerView.addItemDecoration(mTileAdapter.getMarginItemDecoration());
 
         mToolbar.setOnMenuItemClickListener(mOnMenuItemClickListener);
         mToolbar.setNavigationOnClickListener(v -> hide());

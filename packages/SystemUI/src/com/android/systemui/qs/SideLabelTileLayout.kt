@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2020 The Android Open Source Project
+ * Copyright (C) 2023 droid-ng
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,10 +26,8 @@ open class SideLabelTileLayout(
     attrs: AttributeSet?
 ) : TileLayout(context, attrs) {
 
-    override fun updateResources(): Boolean {
-        return super.updateResources().also {
-            mMaxAllowedRows = context.resources.getInteger(R.integer.quick_settings_max_rows)
-        }
+    init {
+        mLessRows = false
     }
 
     override fun isFull(): Boolean {
@@ -46,21 +45,30 @@ open class SideLabelTileLayout(
      * beyond that.
      */
     fun getPhantomTopPosition(index: Int): Int {
-        val row = index / mColumns
+        return getPhantomTopPosition(index, mColumns)
+    }
+
+    fun getPhantomTopPosition(index: Int, columns: Int): Int {
+        val row = index / columns
         return getRowTop(row)
     }
 
     override fun updateMaxRows(allowedHeight: Int, tilesCount: Int): Boolean {
         val previousRows = mRows
-        mRows = mMaxAllowedRows
-        // We want at most mMaxAllowedRows, but it could be that we don't have enough tiles to fit
-        // that many rows. In that case, we want
-        // `tilesCount = (mRows - 1) * mColumns + X`
-        // where X is some remainder between 1 and `mColumns - 1`
-        // Adding `mColumns - 1` will guarantee that the final value F will satisfy
-        // `mRows * mColumns <= F < (mRows + 1) * mColumns
-        if (mRows > (tilesCount + mColumns - 1) / mColumns) {
-            mRows = (tilesCount + mColumns - 1) / mColumns
+        if (!NewQsHelper.shouldDisallowDynamicQsRow(mContext))
+            mRows = mMaxAllowedRows
+        else
+            mRows = NewQsHelper.getQsRowCountForCurrentOrientation(mContext)
+        if (mColumns > 0) {
+            // We want at most mMaxAllowedRows, but it could be that we don't have enough tiles to fit
+            // that many rows. In that case, we want
+            // `tilesCount = (mRows - 1) * mColumns + X`
+            // where X is some remainder between 1 and `mColumns - 1`
+            // Adding `mColumns - 1` will guarantee that the final value F will satisfy
+            // `mRows * mColumns <= F < (mRows + 1) * mColumns
+            if (mRows > (tilesCount + mColumns - 1) / mColumns) {
+                mRows = (tilesCount + mColumns - 1) / mColumns
+            }
         }
         return previousRows != mRows
     }

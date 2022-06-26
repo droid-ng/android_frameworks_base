@@ -26,6 +26,7 @@ import android.view.DisplayCutout;
 
 import com.android.internal.policy.SystemBarUtils;
 import com.android.systemui.R;
+import com.android.systemui.qs.NewQsHelper;
 import com.android.systemui.shared.system.QuickStepContract;
 
 import java.util.List;
@@ -33,7 +34,7 @@ import java.util.function.Consumer;
 
 public class Utils {
 
-    private static Boolean sUseQsMediaPlayer = null;
+    private static Integer sUseQsMediaPlayer = null;
 
     /**
      * Allows lambda iteration over a list. It is done in reverse order so it is safe
@@ -80,17 +81,20 @@ public class Utils {
      * Allow the media player to be shown in the QS area, controlled by 2 flags.
      * Off by default, but can be disabled by setting to 0
      */
-    public static boolean useQsMediaPlayer(Context context) {
+    public static boolean useQsMediaPlayer(Context context, boolean forQs) {
         // TODO(b/192412820): Replace SHOW_MEDIA_ON_QUICK_SETTINGS with compile-time value
         // Settings.Global.SHOW_MEDIA_ON_QUICK_SETTINGS can't be toggled at runtime, so simply
         // cache the first result we fetch and use that going forward. Do this to avoid unnecessary
         // binder calls which may happen on the critical path.
         if (sUseQsMediaPlayer == null) {
-            int flag = Settings.Global.getInt(context.getContentResolver(),
-                    Settings.Global.SHOW_MEDIA_ON_QUICK_SETTINGS, 1);
-            sUseQsMediaPlayer = flag > 0;
+            sUseQsMediaPlayer = NewQsHelper.shouldUseQsMediaPlayer(context);
+            if (sUseQsMediaPlayer == null) {
+                int flag = Settings.Global.getInt(context.getContentResolver(),
+                        Settings.Global.SHOW_MEDIA_ON_QUICK_SETTINGS, 1);
+                sUseQsMediaPlayer = flag > 0 ? 3 : 0;
+            }
         }
-        return sUseQsMediaPlayer;
+        return (sUseQsMediaPlayer & (forQs ? 2 : 1)) > 0;
     }
 
     /**
@@ -100,7 +104,7 @@ public class Utils {
     public static boolean useMediaResumption(Context context) {
         int flag = Settings.Secure.getInt(context.getContentResolver(),
                 Settings.Secure.MEDIA_CONTROLS_RESUME, 1);
-        return useQsMediaPlayer(context) && flag > 0;
+        return useQsMediaPlayer(context, false) && flag > 0;
     }
 
     /**

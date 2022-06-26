@@ -1,3 +1,20 @@
+/*
+ * Copyright (C) 2015 The Android Open Source Project
+ * Copyright (C) 2022-2023 droid-ng
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.android.systemui.qs;
 
 import static com.android.internal.jank.InteractionJankMonitor.CUJ_NOTIFICATION_SHADE_QS_SCROLL_SWIPE;
@@ -27,6 +44,7 @@ import androidx.viewpager.widget.ViewPager;
 import com.android.internal.jank.InteractionJankMonitor;
 import com.android.internal.logging.UiEventLogger;
 import com.android.systemui.R;
+import com.android.systemui.plugins.qs.MultiQSTile;
 import com.android.systemui.plugins.qs.QSTile;
 import com.android.systemui.qs.QSPanel.QSTileLayout;
 import com.android.systemui.qs.QSPanelControllerBase.TileRecord;
@@ -36,7 +54,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
-public class PagedTileLayout extends ViewPager implements QSTileLayout {
+public class PagedTileLayout extends ViewPager implements QSTileLayout, Revealable {
 
     private static final String CURRENT_PAGE = "current_page";
     private static final int NO_PAGE = -1;
@@ -361,11 +379,22 @@ public class PagedTileLayout extends ViewPager implements QSTileLayout {
     public List<String> getSpecsForPage(int page) {
         ArrayList<String> out = new ArrayList<>();
         if (page < 0) return out;
-        int perPage = mPages.get(0).maxTiles();
-        int startOfPage = page * perPage;
-        int endOfPage = (page + 1) * perPage;
-        for (int i = startOfPage; i < endOfPage && i < mTiles.size(); i++) {
-            out.add(mTiles.get(i).tile.getTileSpec());
+        final int tileCount = mPages.get(0).maxTiles();
+        int index = 0;
+        int offset = 0;
+        final int NT = mTiles.size();
+        for (int i = 0; i < NT; i++) {
+            TileRecord tile = mTiles.get(i);
+            if (++offset > tileCount) {
+                if (index++ == page) break;
+                offset = 1;
+                out.clear();
+            }
+            if (tile.tile instanceof MultiQSTile) {
+                MultiQSTile multiTile = (MultiQSTile) tile.tile;
+                offset += (multiTile.getRowsConsumed() * multiTile.getColumnsConsumed()) - 1;
+            }
+            out.add(tile.tile.getTileSpec());
         }
         return out;
     }
@@ -375,12 +404,20 @@ public class PagedTileLayout extends ViewPager implements QSTileLayout {
 
         final int tilesPerPageCount = mPages.get(0).maxTiles();
         int index = 0;
-        final int totalTilesCount = mTiles.size();
-        mLogger.logTileDistributionInProgress(tilesPerPageCount, totalTilesCount);
-        for (int i = 0; i < totalTilesCount; i++) {
+        int offset = 0;
+        final int NT = mTiles.size();
+        mLogger.logTileDistributionInProgress(tilesPerPageCount, NT);
+        for (int i = 0; i < NT; i++) {
             TileRecord tile = mTiles.get(i);
-            if (mPages.get(index).mRecords.size() == tilesPerPageCount) index++;
+            if (mPages.get(index).mRecords.size() + offset >= tilesPerPageCount) {
+                index++;
+                offset = 0;
+            }
             mLogger.logTileDistributed(tile.tile.getClass().getSimpleName(), index);
+            if (tile.tile instanceof MultiQSTile) {
+                MultiQSTile multiTile = (MultiQSTile) tile.tile;
+                offset += (multiTile.getRowsConsumed() * multiTile.getColumnsConsumed()) - 1;
+            }
             mPages.get(index).addTile(tile);
         }
     }
@@ -465,7 +502,13 @@ public class PagedTileLayout extends ViewPager implements QSTileLayout {
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
 
-        final int nTiles = mTiles.size();
+        int nTiles = mTiles.size();
+        for (TileRecord tile : mTiles) {
+            if (tile.tile instanceof MultiQSTile) {
+                MultiQSTile multiTile = (MultiQSTile) tile.tile;
+                nTiles += (multiTile.getRowsConsumed() * multiTile.getColumnsConsumed()) - 1;
+            }
+        }
         // If we have no reason to recalculate the number of rows, skip this step. In particular,
         // if the height passed by its parent is the same as the last time, we try not to remeasure.
         if (mDistributeTiles || mLastMaxHeight != MeasureSpec.getSize(heightMeasureSpec)
@@ -531,15 +574,22 @@ public class PagedTileLayout extends ViewPager implements QSTileLayout {
      */
     public int getNumPages() {
         final int nTiles = mTiles.size();
-        // We should always have at least one page, even if it's empty.
-        int numPages = Math.max(nTiles / mPages.get(0).maxTiles(), 1);
-
-        // Add one more not full page if needed
-        if (nTiles > numPages * mPages.get(0).maxTiles()) {
-            numPages++;
+        final int tileCount = mPages.get(0).maxTiles();
+        int index = 1 /* always at least one page */;
+        int offset = 0;
+        for (int i = 0; i < nTiles; i++) {
+            TileRecord tile = mTiles.get(i);
+            if (offset >= tileCount) {
+                index++;
+                offset = 0;
+            }
+            if (tile.tile instanceof MultiQSTile) {
+                MultiQSTile multiTile = (MultiQSTile) tile.tile;
+                offset += (multiTile.getRowsConsumed() * multiTile.getColumnsConsumed()) - 1;
+            }
+            offset++;
         }
-
-        return numPages;
+        return index;
     }
 
     public int getNumVisibleTiles() {
@@ -553,6 +603,7 @@ public class PagedTileLayout extends ViewPager implements QSTileLayout {
         return mPages.get(0).mRecords.size();
     }
 
+    @Override
     public void startTileReveal(Set<String> tileSpecs, final Runnable postAnimation) {
         if (tileSpecs.isEmpty() || mPages.size() < 2 || getScrollX() != 0 || !beginFakeDrag()) {
             // Do not start the reveal animation unless there are tiles to animate, multiple

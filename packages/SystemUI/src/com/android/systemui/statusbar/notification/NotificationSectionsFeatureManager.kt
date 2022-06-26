@@ -49,7 +49,7 @@ class NotificationSectionsFeatureManager @Inject constructor(
     }
 
     fun isMediaControlsEnabled(): Boolean {
-        return Utils.useQsMediaPlayer(context)
+        return Utils.useQsMediaPlayer(context, false)
     }
 
     fun getNotificationBuckets(): IntArray {

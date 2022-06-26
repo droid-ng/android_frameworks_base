@@ -168,4 +168,8 @@
     <!-- DataSwitch Tile -->
     <string name="qs_data_switch_label">Switch data card</string>
 
+    <!-- QS styles -->
+    <string name="qs_cant_add_tile">Tile can\'t be placed here</string>
+    <string name="qs_cant_add_tile_msg">Due to space issues, this tile cannot be placed at this position, or the tile cannot move away from its original position. This is related to a big tile which would be moved to an invalid position. Please remove the big tile or move this tile somewhere else to continue.</string>
+    <string name="quick_settings_media_host_label">Music player</string>
 </resources>

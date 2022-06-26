@@ -3276,8 +3276,8 @@ public class CentralSurfacesImpl implements CoreStartable, CentralSurfaces, Tune
             mNotificationPanelViewController.closeQsCustomizer();
             return true;
         }
-        if (mNotificationPanelViewController.isQsExpanded()) {
-                mNotificationPanelViewController.animateCloseQs(false /* animateAway */);
+        if (mNotificationPanelViewController.isQsExpanded() && mNotificationPanelViewController.isQsExpansionEnabled(true)) {
+            mNotificationPanelViewController.animateCloseQs(false /* animateAway */);
             return true;
         }
         if (mNotificationPanelViewController.closeUserSwitcherIfOpen()) {

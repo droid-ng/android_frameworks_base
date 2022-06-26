@@ -574,7 +574,8 @@ constructor(
                 // Media data added from a recommendation card should starts playing.
                 if (
                     (shouldScrollToKey && data.isPlaying == true) ||
-                        (!shouldScrollToKey && data.active)
+                        (!shouldScrollToKey && data.active) ||
+                        MediaPlayerData.players().size == 1
                 ) {
                     reorderAllPlayers(curVisibleMediaKey, key)
                 } else {
@@ -925,7 +926,8 @@ constructor(
 
                     mediaPlayer.mediaViewController.onLocationPreChange(desiredLocation)
                 }
-                mediaCarouselScrollHandler.showsSettingsButton = !it.showsOnlyActiveMedia
+                mediaCarouselScrollHandler.showsSettingsButton = !Utils.useQsMediaPlayer(context, true)
+                                                                    || !it.showsOnlyActiveMedia
                 mediaCarouselScrollHandler.falsingProtectionNeeded = it.falsingProtectionNeeded
                 val nowVisible = it.visible
                 if (nowVisible != playersVisible) {

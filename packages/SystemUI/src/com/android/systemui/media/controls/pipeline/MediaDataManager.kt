@@ -145,7 +145,7 @@ private fun allowMediaRecommendations(context: Context): Boolean {
             Settings.Secure.MEDIA_CONTROLS_RECOMMENDATION,
             1
         )
-    return Utils.useQsMediaPlayer(context) && flag > 0
+    return Utils.useQsMediaPlayer(context, false) && flag > 0
 }
 
 /** A class that facilitates management and loading of Media Data, ready for binding. */
@@ -254,7 +254,7 @@ class MediaDataManager(
         activityStarter,
         smartspaceMediaDataProvider,
         Utils.useMediaResumption(context),
-        Utils.useQsMediaPlayer(context),
+        Utils.useQsMediaPlayer(context, false),
         clock,
         tunerService,
         mediaFlags,
@@ -378,6 +378,7 @@ class MediaDataManager(
         } else {
             onNotificationRemoved(key)
         }
+        generateFakePlayerIfNeeded()
     }
 
     private fun removeAllForPackage(packageName: String) {
@@ -487,6 +488,7 @@ class MediaDataManager(
      */
     private fun notifyMediaDataLoaded(key: String, oldKey: String?, info: MediaData) {
         internalListeners.forEach { it.onMediaDataLoaded(key, oldKey, info) }
+        generateFakePlayerIfNeeded()
     }
 
     /**
@@ -497,6 +499,7 @@ class MediaDataManager(
      */
     private fun notifySmartspaceMediaDataLoaded(key: String, info: SmartspaceMediaData) {
         internalListeners.forEach { it.onSmartspaceMediaDataLoaded(key, info) }
+        generateFakePlayerIfNeeded()
     }
 
     /**
@@ -507,6 +510,7 @@ class MediaDataManager(
      */
     private fun notifyMediaDataRemoved(key: String) {
         internalListeners.forEach { it.onMediaDataRemoved(key) }
+        generateFakePlayerIfNeeded()
     }
 
     /**
@@ -521,6 +525,7 @@ class MediaDataManager(
      */
     private fun notifySmartspaceMediaDataRemoved(key: String, immediately: Boolean) {
         internalListeners.forEach { it.onSmartspaceMediaDataRemoved(key, immediately) }
+        generateFakePlayerIfNeeded()
     }
 
     /**
@@ -1269,6 +1274,7 @@ class MediaDataManager(
                 smartspaceMediaData = EMPTY_SMARTSPACE_MEDIA_DATA
             }
         }
+        generateFakePlayerIfNeeded()
     }
 
     fun onNotificationRemoved(key: String) {
@@ -1310,6 +1316,7 @@ class MediaDataManager(
             notifyMediaDataRemoved(key)
             logger.logMediaRemoved(removed.appUid, removed.packageName, removed.instanceId)
         }
+        generateFakePlayerIfNeeded()
     }
 
     fun setMediaResumptionEnabled(isEnabled: Boolean) {
@@ -1327,6 +1334,38 @@ class MediaDataManager(
                 notifyMediaDataRemoved(it.key)
                 logger.logMediaRemoved(it.value.appUid, it.value.packageName, it.value.instanceId)
             }
+        }
+    }
+
+    private fun generateFakePlayerIfNeeded() {
+        val fakeKey = "f-a-k-e"
+        val elements = mediaEntries.size
+        val hasFakePlayer = mediaEntries.containsKey(fakeKey)
+        val shouldHaveFakePlayer = elements == 0 || (hasFakePlayer && elements == 1)
+        if (hasFakePlayer && !shouldHaveFakePlayer) {
+            removeEntry(fakeKey)
+        } else if (!hasFakePlayer && shouldHaveFakePlayer) { //TODO
+            val data = MediaData(
+                userId = -1,
+                initialized = true,
+                app = "",
+                appIcon = null,
+                artist = "No media playing",
+                song = "No media playing",
+                artwork = null,
+                actions = emptyList(),
+                actionsToShowInCompact = emptyList(),
+                packageName = "INVALID",
+                token = null,
+                clickIntent = null,
+                device = null,
+                active = false,
+                resumeAction = null,
+                isClearable = false,
+                instanceId = logger.getNewInstanceId(),
+                appUid = -1)
+            mediaEntries.put(fakeKey, data)
+            notifyMediaDataLoaded(fakeKey, null /* oldKey */, data)
         }
     }
 

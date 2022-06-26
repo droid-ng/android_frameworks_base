@@ -55,6 +55,7 @@ import com.android.systemui.dagger.SysUISingleton;
 import com.android.systemui.dagger.qualifiers.Main;
 import com.android.systemui.dock.DockManager;
 import com.android.systemui.keyguard.KeyguardUnlockAnimationController;
+import com.android.systemui.qs.NewQsHelper;
 import com.android.systemui.scrim.ScrimView;
 import com.android.systemui.shade.NotificationPanelViewController;
 import com.android.systemui.statusbar.notification.stack.ViewState;
@@ -268,6 +269,7 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener, Dump
     private final WakeLock mWakeLock;
     private boolean mWakeLockHeld;
     private boolean mKeyguardOccluded;
+    private boolean mNotificationScrimAlphaOverride;
 
     @Inject
     public ScrimController(
@@ -779,6 +781,11 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener, Dump
         applyState();
     }
 
+    public void setNotificationScrimAlphaOverride(boolean value) {
+        mNotificationScrimAlphaOverride = value;
+        applyState();
+    }
+
     private void applyState() {
         mInFrontTint = mState.getFrontTint();
         mBehindTint = mState.getBehindTint();
@@ -891,6 +898,9 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener, Dump
         }
         if (mState != ScrimState.UNLOCKED) {
             mAnimatingPanelExpansionOnUnlock = false;
+        }
+        if (mNotificationScrimAlphaOverride) {
+            mNotificationsAlpha = 0;
         }
 
         assertAlphasValid();
@@ -1049,8 +1059,10 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener, Dump
                     && !mBlankScreen;
 
             mScrimInFront.setColors(mColors, animateScrimInFront);
-            mScrimBehind.setColors(mBehindColors, animateBehindScrim);
-            mNotificationsScrim.setColors(mColors, animateScrimNotifications);
+            mScrimBehind.setColors(NewQsHelper.getDualToneSetting(mScrimBehind.getContext()) == 1 ? mColors
+                                    : mBehindColors, animateBehindScrim);
+            mNotificationsScrim.setColors(NewQsHelper.getDualToneSetting(mScrimBehind.getContext()) == 2 ? mBehindColors
+                                            : mColors, animateScrimNotifications);
 
             dispatchBackScrimState(mScrimBehind.getViewAlpha());
         }

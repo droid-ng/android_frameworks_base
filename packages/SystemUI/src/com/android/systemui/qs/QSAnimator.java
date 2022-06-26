@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2016 The Android Open Source Project
+ * Copyright (C) 2022-2023 droid-ng
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
  * except in compliance with the License. You may obtain a copy of the License at
@@ -17,17 +18,20 @@ package com.android.systemui.qs;
 import android.animation.TimeInterpolator;
 import android.animation.ValueAnimator;
 import android.annotation.NonNull;
+import android.content.Context;
 import android.util.Log;
 import android.util.Pair;
 import android.util.SparseArray;
 import android.view.View;
 import android.view.View.OnAttachStateChangeListener;
 import android.view.View.OnLayoutChangeListener;
+import android.widget.TextView;
 
 import androidx.annotation.Nullable;
 
 import com.android.systemui.animation.Interpolators;
 import com.android.systemui.dagger.qualifiers.Main;
+import com.android.systemui.plugins.qs.MultiQSTile;
 import com.android.systemui.plugins.qs.QS;
 import com.android.systemui.plugins.qs.QSTile;
 import com.android.systemui.plugins.qs.QSTileView;
@@ -35,10 +39,13 @@ import com.android.systemui.qs.QSPanel.QSTileLayout;
 import com.android.systemui.qs.TouchAnimator.Builder;
 import com.android.systemui.qs.dagger.QSScope;
 import com.android.systemui.qs.tileimpl.HeightOverrideable;
+import com.android.systemui.qs.tileimpl.QSTileViewImplNew;
 import com.android.systemui.tuner.TunerService;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.Executor;
 
@@ -83,6 +90,7 @@ public class QSAnimator implements QSHost.Callback, PagedTileLayout.PageListener
      * to prevent overlapping of semi transparent views
      */
     private final ArrayList<View> mAnimatedQsViews = new ArrayList<>();
+    private final HashMap<View, Float> baseAlphaState = new HashMap<>();
     private final QuickQSPanel mQuickQsPanel;
     private final QSPanelController mQsPanelController;
     private final QuickQSPanelController mQuickQSPanelController;
@@ -290,6 +298,7 @@ public class QSAnimator implements QSHost.Callback, PagedTileLayout.PageListener
         clearAnimationState();
         mNonFirstPageQSAnimators.clear();
         mAllViews.clear();
+        baseAlphaState.clear();
         mAnimatedQsViews.clear();
         mQQSTileHeightAnimator = null;
         mOtherFirstPageTilesHeightAnimator = null;
@@ -302,8 +311,21 @@ public class QSAnimator implements QSHost.Callback, PagedTileLayout.PageListener
         mLastQQSTileHeight = 0;
 
         if (mQsPanelController.areThereTiles()) {
+            SideLabelTileLayout qqsLayout =
+                (SideLabelTileLayout) mQuickQsPanel.getTileLayout();
+            final int numColumns = tileLayout instanceof PagedTileLayout ?
+                ((PagedTileLayout) tileLayout).getColumnCount() : ((TileLayout) tileLayout).getNumColumns();
+            //final int numColumns = qqsLayout.getNumColumns(); // QS and QQS **DO NOT** have the same count of columns
+            int offset = 0;
+            int column = 0;
+            LinkedList<Integer> /* mostly used as Queue */ offsets = new LinkedList<Integer>();
             for (QSTile tile : tiles) {
                 QSTileView tileView = mQsPanelController.getTileView(tile);
+
+                if (column == numColumns) {
+                    column = 0;
+                    if (offsets.size() > 0) offsets.removeFirst();
+                }
 
                 if (tileView == null) {
                     Log.e(TAG, "tileView is null " + tile.getTileSpec());
@@ -314,8 +336,39 @@ public class QSAnimator implements QSHost.Callback, PagedTileLayout.PageListener
                     break;
                 }
 
+                if (tile instanceof MultiQSTile) {
+                    MultiQSTile multiTile = (MultiQSTile) tile;
+                    int newOffset = 0;
+                    for (int j = 0; j < multiTile.getRowsConsumed(); j++) {
+                        if (offsets.size() > j) newOffset = offsets.get(j);
+                        for (int k = j == 0 ? 1 : 0; k < multiTile.getColumnsConsumed(); k++) {
+                            newOffset |= (int) Math.pow(2, column + k);
+                        }
+                        if (offsets.size() > j)
+                            offsets.set(j, newOffset);
+                        else {
+                            if (offsets.size() != j) {
+                                for (int l = offsets.size(); l < j; l++) {
+                                    offsets.addLast(0);
+                                }
+                            }
+                            offsets.addLast(newOffset);
+                        }
+                    }
+                }
+
+                while (offsets.size() > 0 && (offsets.get(0) & (int) Math.pow(2, column++)) > 0)
+                    offset++;
+
                 final View tileIcon = tileView.getIcon().getIconView();
                 View view = mQs.getView();
+
+                final Context ctx = tileView.getContext();
+                final boolean r = tileView instanceof QSTileViewImplNew ? ((QSTileViewImplNew) tileView).isRound() : false;
+                final float qsLabelAlpha = NewQsHelper.shouldAllowPrimaryLabel(ctx, r, false) ?1f:0f;
+                final float qqsLabelAlpha = NewQsHelper.shouldAllowPrimaryLabel(ctx, r, true) ?1f:0f;
+                final float qsSecondaryLabelAlpha = NewQsHelper.shouldShowSecondaryLabel(ctx, r, false) ?1f:0f;
+                final float qqsSecondaryLabelAlpha = NewQsHelper.shouldShowSecondaryLabel(ctx, r, true) ?1f:0f;
 
                 // This case: less tiles to animate in small displays.
                 if (count < mQuickQSPanelController.getTileLayout().getNumVisibleTiles()) {
@@ -343,18 +396,18 @@ public class QSAnimator implements QSHost.Callback, PagedTileLayout.PageListener
                     if (mQQSTileHeightAnimator == null) {
                         mQQSTileHeightAnimator = new HeightExpansionAnimator(this,
                                 quickTileView.getMeasuredHeight(), tileView.getMeasuredHeight());
-                        mLastQQSTileHeight = quickTileView.getMeasuredHeight();
                     }
+                    mLastQQSTileHeight = Math.min(quickTileView.getMeasuredHeight(), mLastQQSTileHeight); // 1x1 tile height
 
                     mQQSTileHeightAnimator.addView(quickTileView);
 
                     // Icons
                     translateContent(
-                            quickTileView.getIcon(),
-                            tileView.getIcon(),
+                            quickTileView.getIconWithBackground(),
+                            tileView.getIconWithBackground(),
                             view,
                             xOffset,
-                            yOffset,
+                            yOffset + (quickTileView.getSecondaryLabel().getHeight() - tileView.getSecondaryLabel().getHeight()),
                             mTmpLoc1,
                             translationXBuilder,
                             translationYBuilder,
@@ -367,7 +420,7 @@ public class QSAnimator implements QSHost.Callback, PagedTileLayout.PageListener
                             tileView.getLabelContainer(),
                             view,
                             xOffset,
-                            yOffset,
+                            yOffset + (quickTileView.getLabel().getHeight() - tileView.getLabel().getHeight()),
                             mTmpLoc1,
                             translationXBuilder,
                             translationYBuilder,
@@ -393,22 +446,27 @@ public class QSAnimator implements QSHost.Callback, PagedTileLayout.PageListener
                     // Therefore, we use a quadratic interpolator animator to animate the alpha
                     // for tiles in QQS to match.
                     quadraticInterpolatorBuilder
-                            .addFloat(quickTileView.getSecondaryLabel(), "alpha", 0, 1);
+                            .addFloat(quickTileView.getSecondaryLabel(), "alpha", qqsSecondaryLabelAlpha, qsSecondaryLabelAlpha);
                     nonFirstPageAlphaBuilder
-                            .addFloat(quickTileView.getSecondaryLabel(), "alpha", 0, 0);
+                            .addFloat(quickTileView.getSecondaryLabel(), "alpha", qqsSecondaryLabelAlpha, qqsSecondaryLabelAlpha);
+                    quadraticInterpolatorBuilder
+                            .addFloat(quickTileView.getLabel(), "alpha", qqsLabelAlpha, qsLabelAlpha);
+                    nonFirstPageAlphaBuilder
+                            .addFloat(quickTileView.getLabel(), "alpha", qqsLabelAlpha, qqsLabelAlpha);
 
                     mAnimatedQsViews.add(tileView);
                     mAllViews.add(quickTileView);
+                    mAllViews.add(quickTileView.getLabel());
+                    baseAlphaState.put(quickTileView.getLabel(), qsLabelAlpha);
                     mAllViews.add(quickTileView.getSecondaryLabel());
-                } else if (!isIconInAnimatedRow(count)) {
+                    baseAlphaState.put(quickTileView.getSecondaryLabel(), qsSecondaryLabelAlpha);
+                } else if (!isIconInAnimatedRow(count + offset)) {
                     // Pretend there's a corresponding QQS tile (for the position) that we are
                     // expanding from.
-                    SideLabelTileLayout qqsLayout =
-                            (SideLabelTileLayout) mQuickQsPanel.getTileLayout();
                     getRelativePosition(mTmpLoc1, qqsLayout, view);
                     mQQSTop = mTmpLoc1[1];
                     getRelativePosition(mTmpLoc2, tileView, view);
-                    int diff = mTmpLoc2[1] - (mTmpLoc1[1] + qqsLayout.getPhantomTopPosition(count));
+                    int diff = mTmpLoc2[1] - (mTmpLoc1[1] + qqsLayout.getPhantomTopPosition(count + offset, numColumns));
                     translationYBuilder.addFloat(tileView, "translationY", -diff, 0);
                     if (mOtherFirstPageTilesHeightAnimator == null) {
                         mOtherFirstPageTilesHeightAnimator =
@@ -418,8 +476,9 @@ public class QSAnimator implements QSHost.Callback, PagedTileLayout.PageListener
                     mOtherFirstPageTilesHeightAnimator.addView(tileView);
                     tileView.setClipChildren(true);
                     tileView.setClipToPadding(true);
-                    firstPageBuilder.addFloat(tileView.getSecondaryLabel(), "alpha", 0, 1);
+                    firstPageBuilder.addFloat(tileView.getSecondaryLabel(), "alpha", qqsSecondaryLabelAlpha, qsSecondaryLabelAlpha);
                     mAllViews.add(tileView.getSecondaryLabel());
+                    baseAlphaState.put(tileView.getSecondaryLabel(), qsSecondaryLabelAlpha);
                 }
 
                 mAllViews.add(tileView);
@@ -441,12 +500,14 @@ public class QSAnimator implements QSHost.Callback, PagedTileLayout.PageListener
 
         // Fade in the media player as we reach the final position
         Builder builder = new Builder().setStartDelay(EXPANDED_TILE_DELAY);
-        if (mQsPanelController.shouldUseHorizontalLayout()
-                && mQsPanelController.mMediaHost.hostView != null) {
-            builder.addFloat(mQsPanelController.mMediaHost.hostView, "alpha", 0, 1);
-        } else {
-            // In portrait, media view should always be visible
-            mQsPanelController.mMediaHost.hostView.setAlpha(1.0f);
+        if (mQsPanelController.isQsMediaPlayerEnabled()) {
+            if (mQsPanelController.shouldUseHorizontalLayout()
+                    && mQsPanelController.mMediaHost.hostView != null) {
+                builder.addFloat(mQsPanelController.mMediaHost.hostView, "alpha", 0, 1);
+            } else {
+                // In portrait, media view should always be visible
+                mQsPanelController.mMediaHost.hostView.setAlpha(1.0f);
+            }
         }
         mAllPagesDelayedAnimator = builder.build();
         translationYBuilder.setInterpolator(mQSExpansionPathInterpolator.getYInterpolator());
@@ -484,6 +545,7 @@ public class QSAnimator implements QSHost.Callback, PagedTileLayout.PageListener
                 .setStartDelay(QS_TILE_LABEL_FADE_OUT_START)
                 .setEndDelay(QS_TILE_LABEL_FADE_OUT_END);
         SideLabelTileLayout qqsLayout = (SideLabelTileLayout) mQuickQsPanel.getTileLayout();
+        QSTileLayout tileLayout = mQsPanelController.getTileLayout();
         View view = mQs.getView();
         List<String> specs = mPagedLayout.getSpecsForPage(page);
         if (specs.isEmpty()) {
@@ -494,37 +556,76 @@ public class QSAnimator implements QSHost.Callback, PagedTileLayout.PageListener
             // return null;
         }
 
-        int row = -1;
-        int lastTileTop = -1;
+        int row = 0;
+        int offset = 0;
+        int column = 0;
+        final int numColumns = tileLayout instanceof PagedTileLayout ?
+            ((PagedTileLayout) tileLayout).getColumnCount() : ((TileLayout) tileLayout).getNumColumns();
+        LinkedList<Integer> /* mostly used as Queue */ offsets = new LinkedList<Integer>();
 
         for (int i = 0; i < specs.size(); i++) {
+            QSTile tile = mQsPanelController.getTile(specs.get(i));
+
+            if (column == numColumns) {
+                column = 0;
+                if (offsets.size() > 0) offsets.removeFirst();
+                row++;
+            }
+
+            if (tile instanceof MultiQSTile) {
+                MultiQSTile multiTile = (MultiQSTile) tile;
+                int newOffset = 0;
+                for (int j = 0; j < multiTile.getRowsConsumed(); j++) {
+                    if (offsets.size() > j) newOffset = offsets.get(j);
+                    for (int k = j == 0 ? 1 : 0; k < multiTile.getColumnsConsumed(); k++) {
+                        newOffset |= (int) Math.pow(2, column + k);
+                    }
+                    if (offsets.size() > j)
+                        offsets.set(j, newOffset);
+                    else {
+                        if (offsets.size() != j) {
+                            for (int l = offsets.size(); l < j; l++) {
+                                offsets.addLast(0);
+                            }
+                        }
+                        offsets.addLast(newOffset);
+                    }
+                }
+            }
+
+            while (offsets.size() > 0 && (offsets.get(0) & (int) Math.pow(2, column++)) > 0)
+                offset++;
+
             QSTileView tileView = mQsPanelController.getTileView(specs.get(i));
+            final Context ctx = view.getContext();
+            final boolean r = tileView instanceof QSTileViewImplNew ? ((QSTileViewImplNew) tileView).isRound() : false;
+            final float qsSecondaryLabelAlpha = NewQsHelper.shouldShowSecondaryLabel(ctx, r, false) ?1f:0f;
+            final float qqsSecondaryLabelAlpha = NewQsHelper.shouldShowSecondaryLabel(ctx, r, true) ?1f:0f;
             getRelativePosition(mTmpLoc2, tileView, view);
-            int diff = mTmpLoc2[1] - (mQQSTop + qqsLayout.getPhantomTopPosition(i));
+            int diff = mTmpLoc2[1] - (mQQSTop + qqsLayout.getPhantomTopPosition(i + offset, numColumns));
             builder.addFloat(tileView, "translationY", -diff, 0);
             // The different elements in the tile should be centered, so maintain them centered
-            int centerDiff = (tileView.getMeasuredHeight() - mLastQQSTileHeight) / 2;
-            builder.addFloat(tileView.getIcon(), "translationY", -centerDiff, 0);
+            int centerDiff = NewQsHelper.isAnyTypeOfNewQs(ctx) && !NewQsHelper.shouldBeRoundTile(ctx) ? 0 :
+                                    (tileView.getMeasuredHeight() - mLastQQSTileHeight) / 2;
+            builder.addFloat(tileView.getIconWithBackground(), "translationY", -centerDiff, 0);
             builder.addFloat(tileView.getSecondaryIcon(), "translationY", -centerDiff, 0);
             // The labels have different apparent size in QQS vs QS (no secondary label), so the
             // translation needs to account for that.
             int secondaryLabelOffset = 0;
-            if (tileView.getSecondaryLabel().getVisibility() == View.VISIBLE) {
-                secondaryLabelOffset = tileView.getSecondaryLabel().getMeasuredHeight() / 2;
+            if ((qsSecondaryLabelAlpha != qqsSecondaryLabelAlpha) || (tileView.getSecondaryLabel().getVisibility() == View.VISIBLE && !NewQsHelper.isAnyTypeOfNewQs(ctx))) {
+                secondaryLabelOffset = (qsSecondaryLabelAlpha < qqsSecondaryLabelAlpha && NewQsHelper.isAnyTypeOfNewQs(ctx)
+                            ? -1 : 1) * tileView.getSecondaryLabel().getMeasuredHeight() / 2;
             }
             int labelDiff = centerDiff - secondaryLabelOffset;
             builder.addFloat(tileView.getLabelContainer(), "translationY", -labelDiff, 0);
-            builder.addFloat(tileView.getSecondaryLabel(), "alpha", 0, 0.3f, 1);
+            builder.addFloat(tileView.getSecondaryLabel(), "alpha", qqsSecondaryLabelAlpha,
+                (Math.max(qqsSecondaryLabelAlpha, qsSecondaryLabelAlpha) - Math.min(qqsSecondaryLabelAlpha,
+                qsSecondaryLabelAlpha)) * 0.3f, qsSecondaryLabelAlpha);
 
             alphaDelayedBuilder.addFloat(tileView.getLabelContainer(), "alpha", 0, 1);
-            alphaDelayedBuilder.addFloat(tileView.getIcon(), "alpha", 0, 1);
+            alphaDelayedBuilder.addFloat(tileView.getIconWithBackground(), "alpha", 0, 1);
             alphaDelayedBuilder.addFloat(tileView.getSecondaryIcon(), "alpha", 0, 1);
 
-            final int tileTop = tileView.getTop();
-            if (tileTop != lastTileTop) {
-                row++;
-                lastTileTop = tileTop;
-            }
             if (i >= mQuickQsPanel.getTileLayout().getNumVisibleTiles() && row >= 2) {
                 // Fade completely the tiles in rows below the ones that will merge into QQS.
                 // args is an array of 0s where the length is the current row index (at least third
@@ -548,7 +649,8 @@ public class QSAnimator implements QSHost.Callback, PagedTileLayout.PageListener
             tileView.setClipToPadding(true);
             mAllViews.add(tileView);
             mAllViews.add(tileView.getSecondaryLabel());
-            mAllViews.add(tileView.getIcon());
+            baseAlphaState.put(tileView.getSecondaryLabel(), qsSecondaryLabelAlpha);
+            mAllViews.add(tileView.getIconWithBackground());
             mAllViews.add(tileView.getSecondaryIcon());
             mAllViews.add(tileView.getLabelContainer());
         }
@@ -729,7 +831,7 @@ public class QSAnimator implements QSHost.Callback, PagedTileLayout.PageListener
         mQuickQsPanel.setAlpha(0);
         for (int i = 0; i < N; i++) {
             View v = mAllViews.get(i);
-            v.setAlpha(1);
+            v.setAlpha(baseAlphaState.containsKey(v) ? baseAlphaState.get(v) : 1f);
             v.setTranslationX(0);
             v.setTranslationY(0);
             v.setScaleY(1f);

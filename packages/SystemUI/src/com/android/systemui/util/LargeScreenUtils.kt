@@ -2,6 +2,7 @@ package com.android.systemui.util
 
 import android.content.res.Resources
 import com.android.systemui.R
+import com.android.systemui.qs.NewQsHelper
 
 object LargeScreenUtils {
 
@@ -11,7 +12,7 @@ object LargeScreenUtils {
      */
     @JvmStatic
     fun shouldUseSplitNotificationShade(resources: Resources): Boolean {
-        return resources.getBoolean(R.bool.config_use_split_notification_shade)
+        return NewQsHelper.shouldUseSplitShade(resources, resources.getBoolean(R.bool.config_use_split_notification_shade))
     }
 
     /**

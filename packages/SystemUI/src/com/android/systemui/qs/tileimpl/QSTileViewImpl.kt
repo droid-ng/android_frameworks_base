@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2021 The Android Open Source Project
+ * Copyright (C) 2023 droid-ng
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -50,6 +51,7 @@ import com.android.systemui.plugins.qs.QSIconView
 import com.android.systemui.plugins.qs.QSTile
 import com.android.systemui.plugins.qs.QSTile.BooleanState
 import com.android.systemui.plugins.qs.QSTileView
+import com.android.systemui.qs.NewQsHelper
 import com.android.systemui.qs.logging.QSLogger
 import com.android.systemui.qs.tileimpl.QSIconViewImpl.QS_ANIM_LENGTH
 import java.util.Objects
@@ -57,8 +59,9 @@ import java.util.Objects
 private const val TAG = "QSTileViewImpl"
 open class QSTileViewImpl @JvmOverloads constructor(
     context: Context,
-    private val _icon: QSIconView,
-    private val collapsed: Boolean = false
+    protected val _icon: QSIconView,
+    protected val collapsed: Boolean = false,
+    private val isNew: Boolean = false
 ) : QSTileView(context), HeightOverrideable, LaunchableView {
 
     companion object {
@@ -72,6 +75,7 @@ open class QSTileViewImpl @JvmOverloads constructor(
         internal const val TILE_STATE_RES_PREFIX = "tile_states_"
     }
 
+    protected open var shouldShowSecondaryLabel = NewQsHelper.shouldShowSecondaryLabel(mContext, false, collapsed)
     private var _position: Int = INVALID
 
     override fun setPosition(position: Int) {
@@ -92,36 +96,36 @@ open class QSTileViewImpl @JvmOverloads constructor(
             updateHeight()
         }
 
-    private val colorActive = Utils.getColorAttrDefaultColor(context,
+    protected val colorActive = Utils.getColorAttrDefaultColor(context,
             android.R.attr.colorAccent)
-    private val colorInactive = Utils.getColorAttrDefaultColor(context, R.attr.offStateColor)
-    private val colorUnavailable = Utils.applyAlpha(UNAVAILABLE_ALPHA, colorInactive)
+    protected val colorInactive = Utils.getColorAttrDefaultColor(context, R.attr.offStateColor)
+    protected val colorUnavailable = Utils.applyAlpha(UNAVAILABLE_ALPHA, colorInactive)
 
-    private val colorLabelActive = Utils.getColorAttrDefaultColor(context,
+    protected val colorLabelActive = Utils.getColorAttrDefaultColor(context,
             com.android.internal.R.attr.textColorPrimaryInverse)
-    private val colorLabelInactive =
+    protected val colorLabelInactive =
             Utils.getColorAttrDefaultColor(context, android.R.attr.textColorPrimary)
-    private val colorLabelUnavailable =
+    protected val colorLabelUnavailable =
         Utils.getColorAttrDefaultColor(context, com.android.internal.R.attr.textColorTertiary)
 
-    private val colorSecondaryLabelActive =
+    protected val colorSecondaryLabelActive =
             Utils.getColorAttrDefaultColor(context, android.R.attr.textColorSecondaryInverse)
-    private val colorSecondaryLabelInactive =
+    protected val colorSecondaryLabelInactive =
             Utils.getColorAttrDefaultColor(context, android.R.attr.textColorSecondary)
-    private val colorSecondaryLabelUnavailable =
+    protected val colorSecondaryLabelUnavailable =
         Utils.getColorAttrDefaultColor(context, com.android.internal.R.attr.textColorTertiary)
 
-    private lateinit var label: TextView
+    protected lateinit var label: TextView
     protected lateinit var secondaryLabel: TextView
-    private lateinit var labelContainer: IgnorableChildLinearLayout
+    protected lateinit var labelContainer: IgnorableChildLinearLayout
     protected lateinit var sideView: ViewGroup
-    private lateinit var customDrawableView: ImageView
-    private lateinit var chevronView: ImageView
+    protected lateinit var customDrawableView: ImageView
+    protected lateinit var chevronView: ImageView
     private var mQsLogger: QSLogger? = null
     protected var showRippleEffect = true
 
-    private lateinit var ripple: RippleDrawable
-    private lateinit var colorBackgroundDrawable: Drawable
+    protected lateinit var ripple: RippleDrawable
+    protected lateinit var colorBackgroundDrawable: Drawable
     private var paintColor: Int = 0
     private val singleAnimator: ValueAnimator = ValueAnimator().apply {
         setDuration(QS_ANIM_LENGTH)
@@ -141,7 +145,7 @@ open class QSTileViewImpl @JvmOverloads constructor(
     private var stateDescriptionDeltas: CharSequence? = null
     private var lastStateDescription: CharSequence? = null
     private var tileState = false
-    private var lastState = INVALID
+    protected var lastState = INVALID
     private val launchableViewDelegate = LaunchableViewDelegate(
         this,
         superSetVisibility = { super.setVisibility(it) },
@@ -152,6 +156,10 @@ open class QSTileViewImpl @JvmOverloads constructor(
 
     init {
         setId(generateViewId())
+        realInit()
+    }
+
+    protected open fun realInit() {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL or Gravity.START
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
@@ -192,7 +200,7 @@ open class QSTileViewImpl @JvmOverloads constructor(
         mQsLogger = qsLogger
     }
 
-    fun updateResources() {
+    open fun updateResources() {
         FontSizeUtils.updateFontSize(label, R.dimen.qs_tile_text_size)
         FontSizeUtils.updateFontSize(secondaryLabel, R.dimen.qs_tile_text_size)
 
@@ -226,7 +234,7 @@ open class QSTileViewImpl @JvmOverloads constructor(
         }
     }
 
-    private fun createAndAddLabels() {
+    protected open fun createAndAddLabels() {
         labelContainer = LayoutInflater.from(context)
                 .inflate(R.layout.qs_tile_label, this, false) as IgnorableChildLinearLayout
         label = labelContainer.requireViewById(R.id.tile_label)
@@ -245,7 +253,7 @@ open class QSTileViewImpl @JvmOverloads constructor(
         addView(labelContainer)
     }
 
-    private fun createAndAddSideView() {
+    protected open fun createAndAddSideView() {
         sideView = LayoutInflater.from(context)
                 .inflate(R.layout.qs_tile_side_icon, this, false) as ViewGroup
         customDrawableView = sideView.requireViewById(R.id.customDrawable)
@@ -265,7 +273,7 @@ open class QSTileViewImpl @JvmOverloads constructor(
         updateHeight()
     }
 
-    private fun updateHeight() {
+    protected open fun updateHeight() {
         val actualHeight = if (heightOverride != HeightOverrideable.NO_OVERRIDE) {
             heightOverride
         } else {
@@ -273,7 +281,7 @@ open class QSTileViewImpl @JvmOverloads constructor(
         }
         // Limit how much we affect the height, so we don't have rounding artifacts when the tile
         // is too short.
-        val constrainedSquishiness = constrainSquishiness(squishinessFraction)
+        val constrainedSquishiness = constrainSquishiness(context, squishinessFraction)
         bottom = top + (actualHeight * constrainedSquishiness).toInt()
         scrollY = (actualHeight - height) / 2
     }
@@ -301,7 +309,7 @@ open class QSTileViewImpl @JvmOverloads constructor(
         )
     }
 
-    private fun init(
+    protected fun init(
         click: OnClickListener?,
         longClick: OnLongClickListener?
     ) {
@@ -326,6 +334,7 @@ open class QSTileViewImpl @JvmOverloads constructor(
 
     override fun setClickable(clickable: Boolean) {
         super.setClickable(clickable)
+        if (isNew) return
         background = if (clickable && showRippleEffect) {
             ripple.also {
                 // In case that the colorBackgroundDrawable was used as the background, make sure
@@ -483,7 +492,8 @@ open class QSTileViewImpl @JvmOverloads constructor(
         }
         if (!Objects.equals(secondaryLabel.text, state.secondaryLabel)) {
             secondaryLabel.text = state.secondaryLabel
-            secondaryLabel.visibility = if (TextUtils.isEmpty(state.secondaryLabel)) {
+            secondaryLabel.visibility = if (TextUtils.isEmpty(state.secondaryLabel) ||
+                !shouldShowSecondaryLabel) {
                 GONE
             } else {
                 VISIBLE
@@ -553,29 +563,30 @@ open class QSTileViewImpl @JvmOverloads constructor(
         setChevronColor(chevronColor)
     }
 
-    private fun setColor(color: Int) {
+    protected fun setColor(color: Int) {
         colorBackgroundDrawable.mutate().setTint(color)
         paintColor = color
     }
 
-    private fun setLabelColor(color: Int) {
+    protected open fun setLabelColor(color: Int) {
         label.setTextColor(color)
     }
 
-    private fun setSecondaryLabelColor(color: Int) {
+    protected open fun setSecondaryLabelColor(color: Int) {
         secondaryLabel.setTextColor(color)
     }
 
-    private fun setChevronColor(color: Int) {
+    protected fun setChevronColor(color: Int) {
         chevronView.imageTintList = ColorStateList.valueOf(color)
     }
 
-    private fun loadSideViewDrawableIfNecessary(state: QSTile.State) {
-        if (state.sideViewCustomDrawable != null) {
+    protected open fun loadSideViewDrawableIfNecessary(state: QSTile.State) {
+        val allowChevron = NewQsHelper.shouldAllowChevron(context, false, collapsed)
+        if (allowChevron && state.sideViewCustomDrawable != null) {
             customDrawableView.setImageDrawable(state.sideViewCustomDrawable)
             customDrawableView.visibility = VISIBLE
             chevronView.visibility = GONE
-        } else if (state !is BooleanState || state.forceExpandIcon) {
+        } else if (allowChevron && (state !is BooleanState || state.forceExpandIcon)) {
             customDrawableView.setImageDrawable(null)
             customDrawableView.visibility = GONE
             chevronView.visibility = VISIBLE
@@ -592,7 +603,7 @@ open class QSTileViewImpl @JvmOverloads constructor(
     }
 
     private fun getStateText(state: QSTile.State): String {
-        return if (state.state == Tile.STATE_UNAVAILABLE || state is BooleanState) {
+        return if (!NewQsHelper.shouldUseSmartLabel(mContext) && (state.state == Tile.STATE_UNAVAILABLE || state is BooleanState)) {
             val arrayResId = SubtitleArrayMapping.getSubtitleId(state.spec)
             val array = resources.getStringArray(arrayResId)
             array[state.state]
@@ -615,7 +626,7 @@ open class QSTileViewImpl @JvmOverloads constructor(
         return locInScreen.get(1) >= -height
     }
 
-    private fun getBackgroundColorForState(state: Int, disabledByPolicy: Boolean = false): Int {
+    protected fun getBackgroundColorForState(state: Int, disabledByPolicy: Boolean = false): Int {
         return when {
             state == Tile.STATE_UNAVAILABLE || disabledByPolicy -> colorUnavailable
             state == Tile.STATE_ACTIVE -> colorActive
@@ -627,7 +638,7 @@ open class QSTileViewImpl @JvmOverloads constructor(
         }
     }
 
-    private fun getLabelColorForState(state: Int, disabledByPolicy: Boolean = false): Int {
+    protected open fun getLabelColorForState(state: Int, disabledByPolicy: Boolean = false): Int {
         return when {
             state == Tile.STATE_UNAVAILABLE || disabledByPolicy -> colorLabelUnavailable
             state == Tile.STATE_ACTIVE -> colorLabelActive
@@ -639,7 +650,7 @@ open class QSTileViewImpl @JvmOverloads constructor(
         }
     }
 
-    private fun getSecondaryLabelColorForState(state: Int, disabledByPolicy: Boolean = false): Int {
+    protected open fun getSecondaryLabelColorForState(state: Int, disabledByPolicy: Boolean = false): Int {
         return when {
             state == Tile.STATE_UNAVAILABLE || disabledByPolicy -> colorSecondaryLabelUnavailable
             state == Tile.STATE_ACTIVE -> colorSecondaryLabelActive
@@ -651,7 +662,7 @@ open class QSTileViewImpl @JvmOverloads constructor(
         }
     }
 
-    private fun getChevronColorForState(state: Int, disabledByPolicy: Boolean = false): Int =
+    protected fun getChevronColorForState(state: Int, disabledByPolicy: Boolean = false): Int =
             getSecondaryLabelColorForState(state, disabledByPolicy)
 
     @VisibleForTesting
@@ -702,7 +713,8 @@ internal object SubtitleArrayMapping {
     }
 }
 
-fun constrainSquishiness(squish: Float): Float {
+fun constrainSquishiness(context: Context, squish: Float): Float {
+    if (NewQsHelper.isAnyTypeOfNewQs(context)) return 1f //droid-ng qs styles ADD
     return 0.1f + squish * 0.9f
 }
 

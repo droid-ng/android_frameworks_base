@@ -152,6 +152,16 @@ public class DndTile extends QSTileImpl<BooleanState> {
     }
 
     @Override
+    public int getRowsConsumed() {
+        return 2;
+    }
+
+    @Override
+    public int getColumnsConsumed() {
+        return 2;
+    }
+
+    @Override
     protected void handleUserSwitch(int newUserId) {
         super.handleUserSwitch(newUserId);
         mSettingZenDuration.setUserId(newUserId);

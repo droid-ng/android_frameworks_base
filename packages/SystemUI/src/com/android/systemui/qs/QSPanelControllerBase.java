@@ -39,7 +39,9 @@ import com.android.systemui.plugins.qs.QSTileView;
 import com.android.systemui.qs.customize.QSCustomizerController;
 import com.android.systemui.qs.external.CustomTile;
 import com.android.systemui.qs.logging.QSLogger;
+import com.android.systemui.qs.tileimpl.FrameTileImpl;
 import com.android.systemui.qs.tileimpl.QSTileViewImpl;
+import com.android.systemui.qs.tileimpl.QSTileViewImplFrame;
 import com.android.systemui.util.LargeScreenUtils;
 import com.android.systemui.util.ViewController;
 import com.android.systemui.util.animation.DisappearParameters;
@@ -258,6 +260,15 @@ public abstract class QSPanelControllerBase<T extends QSPanel> extends ViewContr
         } catch (ClassCastException e) {
             Log.e(TAG, "Failed to cast QSTileView to QSTileViewImpl", e);
         }
+        if (r.tileView instanceof QSTileViewImplFrame) {
+            QSTileViewImplFrame frameView = (QSTileViewImplFrame) r.tileView;
+            if (tile instanceof FrameTileImpl) {
+                FrameTileImpl frameTile = (FrameTileImpl) tile;
+                if (frameTile.getFrameType() == 1) { // Media Player
+                    frameView.updateView(mMediaHost.getHostView());
+                }
+            }
+        }
         mView.addTile(r);
         mRecords.add(r);
         mCachedSpecs = getTilesSpecs();
@@ -272,6 +283,15 @@ public abstract class QSPanelControllerBase<T extends QSPanel> extends ViewContr
                 break;
             }
         }
+    }
+
+    QSTile getTile(String subPanel) {
+        for (int i = 0; i < mRecords.size(); i++) {
+            if (subPanel.equals(mRecords.get(i).tile.getTileSpec())) {
+                return mRecords.get(i).tile;
+            }
+        }
+        return mHost.createTile(subPanel);
     }
 
     boolean areThereTiles() {
@@ -400,6 +420,10 @@ public abstract class QSPanelControllerBase<T extends QSPanel> extends ViewContr
         }
         return mUsingMediaPlayer && mMediaHost.getVisible()
                 && mLastOrientation == Configuration.ORIENTATION_LANDSCAPE;
+    }
+
+    boolean isQsMediaPlayerEnabled() {
+        return mUsingMediaPlayer;
     }
 
     private void logTiles() {

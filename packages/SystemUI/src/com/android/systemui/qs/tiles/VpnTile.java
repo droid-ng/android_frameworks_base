@@ -47,6 +47,7 @@ import com.android.systemui.plugins.ActivityStarter;
 import com.android.systemui.plugins.FalsingManager;
 import com.android.systemui.plugins.qs.QSTile.BooleanState;
 import com.android.systemui.plugins.statusbar.StatusBarStateController;
+import com.android.systemui.qs.NewQsHelper;
 import com.android.systemui.qs.QSHost;
 import com.android.systemui.qs.logging.QSLogger;
 import com.android.systemui.qs.tileimpl.QSTileImpl;
@@ -189,6 +190,10 @@ public class VpnTile extends QSTileImpl<BooleanState> {
             state.state = Tile.STATE_UNAVAILABLE;
         } else if (state.value) {
             state.state = Tile.STATE_ACTIVE;
+            if (NewQsHelper.shouldUseSmartLabel(mContext)) {
+                state.label = state.secondaryLabel;
+                state.secondaryLabel = "";
+            }
         } else {
             state.state = Tile.STATE_INACTIVE;
         }

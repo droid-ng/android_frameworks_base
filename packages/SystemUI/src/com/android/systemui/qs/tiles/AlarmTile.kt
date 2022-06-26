@@ -21,6 +21,7 @@ import com.android.systemui.plugins.ActivityStarter
 import com.android.systemui.plugins.FalsingManager
 import com.android.systemui.plugins.qs.QSTile
 import com.android.systemui.plugins.statusbar.StatusBarStateController
+import com.android.systemui.qs.NewQsHelper
 import com.android.systemui.qs.QSHost
 import com.android.systemui.qs.logging.QSLogger
 import com.android.systemui.qs.tileimpl.QSTileImpl
@@ -89,6 +90,10 @@ class AlarmTile @Inject constructor(
         state.label = tileLabel
         lastAlarmInfo?.let {
             state.secondaryLabel = formatNextAlarm(it)
+            if (NewQsHelper.shouldUseSmartLabel(mContext)) {
+                state.label = state.secondaryLabel
+                state.secondaryLabel = ""
+            }
             state.state = Tile.STATE_ACTIVE
         } ?: run {
             state.secondaryLabel = mContext.getString(R.string.qs_alarm_tile_no_alarm)

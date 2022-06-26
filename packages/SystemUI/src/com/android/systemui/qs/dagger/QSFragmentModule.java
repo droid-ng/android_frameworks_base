@@ -135,7 +135,7 @@ public interface QSFragmentModule {
     @Provides
     @Named(QS_USING_MEDIA_PLAYER)
     static boolean providesQSUsingMediaPlayer(Context context) {
-        return useQsMediaPlayer(context);
+        return useQsMediaPlayer(context, true);
     }
 
     /** */
