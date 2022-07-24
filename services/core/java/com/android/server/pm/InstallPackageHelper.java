@@ -3433,6 +3433,60 @@ final class InstallPackageHelper {
             return;
         }
 
+        /* gms feature start */
+        // microg: GmsCore -> microGmsCore, FakeStore, GsfProxy
+        String[][] gmsFeatureMeta = new String[][] {
+          /* vanilla - 0 */
+          new String[] {
+                  "GmsOverlay","GmsSettingsProviderOverlay","GoogleCalendarSyncAdapter",
+                  "GoogleContactsSyncAdapter","PrebuiltExchange3Google","AndroidAutoStub","GooglePartnerSetup",
+                  "GoogleFeedback","GoogleServicesFramework","com.google.android.dialer.support","GoogleRestore",
+                  "GmsCore","Phonesky","MarkupGoogle","SpeechServicesByGoogle","talkback","Velvet","SetupWizard",
+                  "GsfProxy","FakeStore","microGmsCore"
+          },
+          /* microg - 1 */
+          new String[] {
+                  "GmsOverlay","GmsSettingsProviderOverlay","GoogleCalendarSyncAdapter",
+                  "GoogleContactsSyncAdapter","PrebuiltExchange3Google","AndroidAutoStub","GooglePartnerSetup",
+                  "GoogleFeedback","GoogleServicesFramework","com.google.android.dialer.support","GoogleRestore",
+                  "GmsCore","Phonesky","MarkupGoogle","SpeechServicesByGoogle","talkback","Velvet","SetupWizard",
+          },
+          /* gapps - 2 */
+          new String[] {
+                   "GsfProxy","FakeStore","microGmsCore","Provision"
+          },
+          /* microg level 2 (-FakeStore,+Phonesky) - 3 */
+          new String[] {
+                  "GmsOverlay","GmsSettingsProviderOverlay","GoogleCalendarSyncAdapter",
+                  "GoogleContactsSyncAdapter","PrebuiltExchange3Google","AndroidAutoStub","GooglePartnerSetup",
+                  "GoogleFeedback","GoogleServicesFramework","com.google.android.dialer.support","GoogleRestore",
+                  "GmsCore","MarkupGoogle","SpeechServicesByGoogle","talkback","Velvet","SetupWizard",
+                  "FakeStore"
+          },
+          /* microg level 3 (-FakeStore,+microPhonesky,+GoogleCalendarSyncAdapter,+GoogleContactsSyncAdapter) - 4 */
+          new String[] {
+                  "GmsOverlay","GmsSettingsProviderOverlay","PrebuiltExchange3Google","AndroidAutoStub","GooglePartnerSetup",
+                  "GoogleFeedback","GoogleServicesFramework","com.google.android.dialer.support","GoogleRestore",
+                  "GmsCore","MarkupGoogle","SpeechServicesByGoogle","talkback","Velvet","SetupWizard",
+                  "FakeStore"
+          },
+          /* disable - 5 */
+          new String[] {}
+        };
+        final int gmsFeatureSupported = SystemProperties.getInt("ro.gms_feature", 0);
+        final List<String> blockedList;
+        if (gmsFeatureSupported != 0) {
+            int gmsFeatureFlag = SystemProperties.getInt("persist.gms_feature", 0);
+            if (gmsFeatureFlag < 0 || gmsFeatureMeta.length <= gmsFeatureFlag) {
+                Log.wtf("GmsFeature", "invalid persist.gms_feature value " + gmsFeatureFlag);
+                gmsFeatureFlag = 0;
+            }
+            blockedList = Arrays.asList(gmsFeatureMeta[gmsFeatureFlag]);
+        } else {
+            blockedList = new ArrayList<>();
+        }
+        /* gms feature end */
+
         if (DEBUG_PACKAGE_SCANNING) {
             Log.d(TAG, "Scanning app dir " + scanDir + " scanFlags=" + scanFlags
                     + " flags=0x" + Integer.toHexString(parseFlags));
@@ -3447,6 +3501,10 @@ final class InstallPackageHelper {
                     && !PackageInstallerService.isStageName(file.getName());
             if (!isPackage) {
                 // Ignore entries which are not packages
+                continue;
+            }
+            if (blockedList.contains(file.getName()) || blockedList.contains(file.getName().replace(".apk", "")) || blockedList.contains(file.getName().replace(".jar", ""))) {
+                // Ignore GmsFeature restricted APKs if neccessary
                 continue;
             }
             if ((scanFlags & SCAN_DROP_CACHE) != 0) {
